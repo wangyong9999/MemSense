@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import pydantic
+import tiktoken
 from hindsight_api import MemoryEngine
 from hindsight_api.config import get_config
 
@@ -41,6 +42,23 @@ from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 
 console = Console()
+
+# Shared tiktoken encoder for counting context tokens returned to the agent
+_token_encoding = tiktoken.get_encoding("cl100k_base")
+
+
+def count_context_tokens(memories: list[dict]) -> int:
+    """Count the total tokens in the 'text' field of recall results.
+
+    This measures the exact token cost that an agent would pay to consume
+    the retrieved memories — the key metric for Precision-per-Token.
+    """
+    total = 0
+    for mem in memories:
+        text = mem.get("text", "")
+        if text:
+            total += len(_token_encoding.encode(text))
+    return total
 
 
 def get_model_config() -> Dict[str, Dict[str, str]]:
@@ -727,6 +745,9 @@ class BenchmarkRunner:
                             {k: v for k, v in mem.items() if k != "embedding"} for mem in retrieved_memories
                         ]
 
+                        # Count context tokens: the total text tokens the agent receives
+                        context_tokens = count_context_tokens(retrieved_memories)
+
                         return {
                             "question_index": orig_idx,
                             "question": question,
@@ -735,6 +756,8 @@ class BenchmarkRunner:
                             "reasoning": reasoning,
                             "category": category,
                             "retrieved_memories": memories_without_embeddings,
+                            "context_tokens": context_tokens,
+                            "num_memories": len(retrieved_memories),
                             "is_invalid": False,
                             "error": None,
                         }
@@ -752,6 +775,8 @@ class BenchmarkRunner:
                             "reasoning": f"Error: {str(e)}",
                             "category": category,
                             "retrieved_memories": [],
+                            "context_tokens": 0,
+                            "num_memories": 0,
                             "is_invalid": True,
                             "error": str(e),
                         }
@@ -855,6 +880,25 @@ class BenchmarkRunner:
         # Calculate accuracy excluding invalid questions
         accuracy = (correct / valid_total * 100) if valid_total > 0 else 0
 
+        # Aggregate token stats from per-question context_tokens
+        all_tokens = [r.get("context_tokens", 0) for r in judged_results if not r.get("is_invalid")]
+        if all_tokens:
+            sorted_tokens = sorted(all_tokens)
+            token_stats = {
+                "avg_context_tokens": round(sum(all_tokens) / len(all_tokens), 1),
+                "median_context_tokens": sorted_tokens[len(sorted_tokens) // 2],
+                "p95_context_tokens": sorted_tokens[int(len(sorted_tokens) * 0.95)],
+                "min_context_tokens": sorted_tokens[0],
+                "max_context_tokens": sorted_tokens[-1],
+                "total_context_tokens": sum(all_tokens),
+                "avg_memories_per_query": round(
+                    sum(r.get("num_memories", 0) for r in judged_results if not r.get("is_invalid")) / len(all_tokens),
+                    1,
+                ),
+            }
+        else:
+            token_stats = {}
+
         return {
             "accuracy": accuracy,
             "correct": correct,
@@ -862,6 +906,7 @@ class BenchmarkRunner:
             "invalid": invalid,
             "valid_total": valid_total,
             "category_stats": category_stats,
+            "token_stats": token_stats,
             "detailed_results": judged_results,
         }
 
@@ -1147,7 +1192,36 @@ class BenchmarkRunner:
             "total_valid": total_valid,
             "num_items": len(items),
             "model_config": get_model_config(),
+            "token_stats": self._aggregate_token_stats(all_results),
             "item_results": all_results,
+        }
+
+    @staticmethod
+    def _aggregate_token_stats(all_results: List[Dict]) -> Dict:
+        """Aggregate token stats across all items into top-level summary."""
+        all_tokens: list[int] = []
+        all_memories: list[int] = []
+        for r in all_results:
+            ts = r.get("metrics", {}).get("token_stats", {})
+            # Collect per-question tokens from detailed_results
+            for dr in r.get("metrics", {}).get("detailed_results", []):
+                if not dr.get("is_invalid"):
+                    all_tokens.append(dr.get("context_tokens", 0))
+                    all_memories.append(dr.get("num_memories", 0))
+
+        if not all_tokens:
+            return {}
+
+        sorted_tokens = sorted(all_tokens)
+        return {
+            "avg_context_tokens": round(sum(all_tokens) / len(all_tokens), 1),
+            "median_context_tokens": sorted_tokens[len(sorted_tokens) // 2],
+            "p95_context_tokens": sorted_tokens[int(len(sorted_tokens) * 0.95)],
+            "min_context_tokens": sorted_tokens[0],
+            "max_context_tokens": sorted_tokens[-1],
+            "total_context_tokens": sum(all_tokens),
+            "num_questions_measured": len(all_tokens),
+            "avg_memories_per_query": round(sum(all_memories) / len(all_memories), 1),
         }
 
     async def _process_items_sequential(
@@ -1430,6 +1504,7 @@ class BenchmarkRunner:
             "total_invalid": total_invalid,
             "total_valid": total_valid,
             "num_items": len(items),
+            "token_stats": self._aggregate_token_stats(all_results),
             "item_results": all_results,
         }
 
@@ -1489,6 +1564,22 @@ class BenchmarkRunner:
                 f"\n[yellow]Note: {overall_invalid} question(s) marked as invalid due to errors (excluded from accuracy calculation)[/yellow]"
             )
 
+        # Display token efficiency stats
+        ts = results.get("token_stats", {})
+        if ts:
+            console.print("\n[bold cyan]Token Efficiency (context tokens returned to agent):[/bold cyan]")
+            console.print(f"  Avg per query:    {ts.get('avg_context_tokens', 'N/A')}")
+            console.print(f"  Median per query: {ts.get('median_context_tokens', 'N/A')}")
+            console.print(f"  P95 per query:    {ts.get('p95_context_tokens', 'N/A')}")
+            console.print(
+                f"  Min / Max:        {ts.get('min_context_tokens', 'N/A')} / {ts.get('max_context_tokens', 'N/A')}"
+            )
+            console.print(f"  Avg memories:     {ts.get('avg_memories_per_query', 'N/A')}")
+            total_tok = ts.get("total_context_tokens", 0)
+            n = ts.get("num_questions_measured", 0)
+            if total_tok and n:
+                console.print(f"  Total tokens:     {total_tok:,} across {n} queries")
+
     def merge_results(self, new_results: Dict[str, Any], existing_results: Dict[str, Any]) -> Dict[str, Any]:
         """
         Merge new results into existing results.
@@ -1539,6 +1630,7 @@ class BenchmarkRunner:
             "total_invalid": total_invalid,
             "total_valid": total_valid,
             "num_items": len(merged_item_results),
+            "token_stats": self._aggregate_token_stats(merged_item_results),
             "item_results": merged_item_results,
         }
 

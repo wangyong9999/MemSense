@@ -3110,6 +3110,66 @@ def _register_routes(app: FastAPI):
             raise HTTPException(status_code=500, detail=str(e))
 
     @app.get(
+        "/v1/default/banks/{bank_id}/token-usage",
+        summary="Get token usage statistics",
+        description="Returns aggregated token usage for recall/retain/reflect operations on this bank.",
+        operation_id="get_token_usage",
+        tags=["Banks"],
+    )
+    async def api_token_usage(
+        bank_id: str,
+        operation: str | None = Query(None, description="Filter by operation: retain, recall, reflect"),
+        days: int = Query(30, description="Number of days to look back"),
+        request_context: RequestContext = Depends(get_request_context),
+    ):
+        """Get token usage statistics for a memory bank."""
+        try:
+            pool = await app.state.memory._get_pool()
+            async with pool.acquire() as conn:
+                rows = await conn.fetch(
+                    """
+                    SELECT
+                        operation,
+                        COUNT(*) as count,
+                        COALESCE(AVG(context_tokens), 0) as avg_context_tokens,
+                        COALESCE(SUM(context_tokens), 0) as total_context_tokens,
+                        COALESCE(AVG(llm_input_tokens), 0) as avg_llm_input_tokens,
+                        COALESCE(AVG(llm_output_tokens), 0) as avg_llm_output_tokens,
+                        COALESCE(SUM(saved_tokens), 0) as total_saved_tokens
+                    FROM token_usage
+                    WHERE bank_id = $1
+                      AND created_at >= now() - make_interval(days => $2)
+                      AND ($3::text IS NULL OR operation = $3)
+                    GROUP BY operation
+                    ORDER BY operation
+                    """,
+                    bank_id,
+                    days,
+                    operation,
+                )
+                return {
+                    "bank_id": bank_id,
+                    "period_days": days,
+                    "by_operation": [
+                        {
+                            "operation": row["operation"],
+                            "count": row["count"],
+                            "avg_context_tokens": round(float(row["avg_context_tokens"]), 1),
+                            "total_context_tokens": int(row["total_context_tokens"]),
+                            "avg_llm_input_tokens": round(float(row["avg_llm_input_tokens"]), 1),
+                            "avg_llm_output_tokens": round(float(row["avg_llm_output_tokens"]), 1),
+                            "total_saved_tokens": int(row["total_saved_tokens"]),
+                        }
+                        for row in rows
+                    ],
+                }
+        except (AuthenticationError, HTTPException):
+            raise
+        except Exception as e:
+            logger.error(f"Error in /v1/default/banks/{bank_id}/token-usage: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @app.get(
         "/v1/default/banks/{bank_id}/entities",
         response_model=EntityListResponse,
         summary="List entities",

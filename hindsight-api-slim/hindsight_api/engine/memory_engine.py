@@ -2660,9 +2660,34 @@ class MemoryEngine(MemoryEngineInterface):
                 except Exception as e:
                     logger.warning(f"Post-recall hook error (non-fatal): {e}")
 
+            # Fire-and-forget token accounting (never blocks response)
+            if result is not None:
+                asyncio.create_task(self._record_recall_tokens(bank_id, result))
+
             return result
         finally:
             recall_span_context.__exit__(None, None, None)
+
+    async def _record_recall_tokens(self, bank_id: str, result: RecallResultModel) -> None:
+        """Record token usage for a recall operation (fire-and-forget)."""
+        try:
+            from .token_accounting import TokenUsageRecord, measure_recall_tokens, record_token_usage
+
+            pool = await self._get_pool()
+            stats = measure_recall_tokens([r.model_dump() for r in result.results])
+            await record_token_usage(
+                pool,
+                TokenUsageRecord(
+                    bank_id=bank_id,
+                    operation="recall",
+                    context_tokens=stats.context_tokens,
+                    candidate_count=stats.num_results,
+                    baseline_tokens=stats.baseline_tokens,
+                    saved_tokens=stats.saved_tokens,
+                ),
+            )
+        except Exception:
+            logger.debug("Token accounting failed (non-fatal)", exc_info=True)
 
     async def _search_with_retries(
         self,

@@ -78,12 +78,17 @@ cd hindsight-control-plane && npm run dev
 ## Architecture
 
 ### Monorepo Structure
-- **hindsight-api-slim/**: Core FastAPI server with memory engine (Python, uv)
+- **hindsight-api-slim/**: Core FastAPI server with memory engine (Python, uv) — primary API codebase
+- **hindsight-api/**: Legacy API package (wraps hindsight-api-slim + hindsight-embed)
+- **hindsight-all-slim/**: All-in-one package (API slim + control plane)
+- **hindsight-all/**: All-in-one package (API + control plane + embed)
 - **hindsight-control-plane/**: Admin UI (Next.js, npm)
 - **hindsight-cli/**: CLI tool (Rust, cargo, uses progenitor for API client)
 - **hindsight-clients/**: Generated SDK clients (Python, TypeScript, Rust)
 - **hindsight-docs/**: Docusaurus documentation site
+- **hindsight-embed/**: Embedded local embedding/reranker models
 - **hindsight-integrations/**: Framework integrations (LiteLLM, CrewAI, LangGraph, Pydantic AI, AG2, Claude Code, etc.)
+- **hindsight-integration-tests/**: Cross-component integration tests
 - **hindsight-dev/**: Development tools and benchmarks
 
 ### Core Engine (hindsight-api-slim/hindsight_api/engine/)
@@ -279,6 +284,20 @@ Fields must be categorized as either **hierarchical** (can be overridden per-ten
 - Infrastructure settings (database URL, port, host)
 - Global limits (max concurrent operations)
 - System-wide feature flags
+
+### Git Hooks
+
+Set up pre-commit hooks to auto-lint before each commit:
+```bash
+./scripts/setup-hooks.sh
+```
+This runs Python (ruff check/format, ty check) and TypeScript (eslint, prettier) linting in parallel on commit.
+
+### Release Process
+
+Releases are managed via `scripts/release.sh <version>`, which bumps versions across all components, regenerates OpenAPI spec and client SDKs, updates docs versioning, creates a git tag, and pushes. During development, do NOT manually regenerate clients — that only happens during releases.
+
+For individual integrations: `scripts/release-integration.sh`.
 
 ## Environment Setup
 

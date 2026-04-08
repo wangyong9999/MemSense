@@ -61,8 +61,19 @@ class LongMemEvalDataset(BenchmarkDataset):
 
         batch_contents = []
 
+        # Deduplicate session_ids to avoid retain_batch_async ValueError
+        seen_ids: dict[str, int] = {}
+        deduped_session_ids = []
+        for sid in session_ids:
+            if sid in seen_ids:
+                seen_ids[sid] += 1
+                deduped_session_ids.append(f"{sid}_{seen_ids[sid]}")
+            else:
+                seen_ids[sid] = 0
+                deduped_session_ids.append(sid)
+
         # Process each session
-        for session_turns, date_str, session_id in zip(sessions, dates, session_ids):
+        for session_turns, date_str, session_id in zip(sessions, dates, deduped_session_ids):
             # Parse session date
             session_date = self._parse_date(date_str) if date_str else datetime.now(timezone.utc)
 
