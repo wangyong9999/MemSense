@@ -71,7 +71,7 @@ async def list_banks():
         await memory.close()
 
 
-async def ingest_locomo(max_items: int | None, wait_consolidation: bool):
+async def ingest_locomo(max_items: int | None, wait_consolidation: bool, force_item: str | None = None):
     """Ingest LoCoMo conversations into separate banks."""
     from benchmarks.common.benchmark_runner import create_memory_engine
     from benchmarks.locomo.locomo_benchmark import LoComoDataset
@@ -90,7 +90,15 @@ async def ingest_locomo(max_items: int | None, wait_consolidation: bool):
             agent_id = f"locomo_{item_id}"
             print(f"\n[{i+1}/{len(items)}] Ingesting {item_id} into bank '{agent_id}'...")
 
-            # Check if bank already has data
+            # Force mode: clear and re-ingest a specific item
+            if force_item and item_id == force_item:
+                print(f"  --force: clearing bank '{agent_id}' for re-ingestion...")
+                await memory.delete_bank(agent_id, request_context=RequestContext())
+            elif force_item and item_id != force_item:
+                print(f"  Skipping (--force targets {force_item} only)")
+                continue
+
+            # Check if bank already has data (skip-if-exists)
             try:
                 pool = await memory._get_pool()
                 async with pool.acquire() as conn:
@@ -100,8 +108,8 @@ async def ingest_locomo(max_items: int | None, wait_consolidation: bool):
                     if count and count > 0:
                         print(f"  Bank '{agent_id}' already has {count} facts. Skipping.")
                         continue
-            except Exception:
-                pass  # Table might not exist yet
+            except Exception as e:
+                logger.debug(f"Skip check failed (table may not exist yet): {e}")
 
             # Ensure bank exists
             await memory.get_bank_profile(agent_id, request_context=RequestContext())
@@ -130,9 +138,7 @@ async def ingest_locomo(max_items: int | None, wait_consolidation: bool):
             print(f"  Bank '{agent_id}' now has {count} facts")
 
             if wait_consolidation:
-                print("  Waiting for consolidation...")
-                await memory._wait_for_all_consolidation(agent_id)
-                print("  Consolidation complete")
+                print("  Note: consolidation runs asynchronously in the background.")
 
         # Summary
         print("\n" + "=" * 60)
@@ -147,7 +153,7 @@ async def ingest_locomo(max_items: int | None, wait_consolidation: bool):
         await memory.close()
 
 
-async def ingest_longmemeval(max_items: int | None, wait_consolidation: bool):
+async def ingest_longmemeval(max_items: int | None, wait_consolidation: bool, force_item: str | None = None):
     """Ingest LongMemEval questions into separate banks."""
     from benchmarks.common.benchmark_runner import create_memory_engine
     from benchmarks.longmemeval.longmemeval_benchmark import LongMemEvalDataset
@@ -155,7 +161,7 @@ async def ingest_longmemeval(max_items: int | None, wait_consolidation: bool):
     memory = await create_memory_engine()
     try:
         dataset = LongMemEvalDataset()
-        dataset_path = Path(__file__).parent.parent.parent / "hindsight-dev" / "benchmarks" / "longmemeval" / "datasets" / "longmemeval_s.json"
+        dataset_path = Path(__file__).parent.parent.parent / "hindsight-dev" / "benchmarks" / "longmemeval" / "datasets" / "longmemeval_s_cleaned.json"
         items = dataset.load(dataset_path, max_items)
         print(f"Loaded {len(items)} questions from {dataset_path}")
 
@@ -166,7 +172,14 @@ async def ingest_longmemeval(max_items: int | None, wait_consolidation: bool):
             agent_id = f"longmemeval_{item_id}"
             print(f"\n[{i+1}/{len(items)}] Ingesting {item_id} into bank '{agent_id}'...")
 
-            # Check if bank already has data
+            if force_item and item_id == force_item:
+                print(f"  --force: clearing bank '{agent_id}' for re-ingestion...")
+                await memory.delete_bank(agent_id, request_context=RequestContext())
+            elif force_item and item_id != force_item:
+                print(f"  Skipping (--force targets {force_item} only)")
+                continue
+
+            # Check if bank already has data (skip-if-exists)
             try:
                 pool = await memory._get_pool()
                 async with pool.acquire() as conn:
@@ -221,6 +234,8 @@ def main():
                         help="Max items to ingest (conversations for LoCoMo, questions for LongMemEval)")
     parser.add_argument("--list-banks", action="store_true",
                         help="List existing banks in database")
+    parser.add_argument("--force", type=str, default=None,
+                        help="Force re-ingest a specific item (e.g., conv-41). Clears its bank first.")
     parser.add_argument("--wait-consolidation", action="store_true",
                         help="Wait for observation consolidation after each item")
     args = parser.parse_args()
@@ -233,9 +248,9 @@ def main():
         parser.error("benchmark is required (locomo or longmemeval)")
 
     if args.benchmark == "locomo":
-        asyncio.run(ingest_locomo(args.max_items, args.wait_consolidation))
+        asyncio.run(ingest_locomo(args.max_items, args.wait_consolidation, force_item=args.force))
     else:
-        asyncio.run(ingest_longmemeval(args.max_items, args.wait_consolidation))
+        asyncio.run(ingest_longmemeval(args.max_items, args.wait_consolidation, force_item=args.force))
 
 
 if __name__ == "__main__":
