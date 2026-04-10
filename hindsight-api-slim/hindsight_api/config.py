@@ -14,8 +14,13 @@ from typing import Any
 
 from dotenv import find_dotenv, load_dotenv
 
-# Load .env file, searching current and parent directories (overrides existing env vars)
-load_dotenv(find_dotenv(usecwd=True), override=True)
+# Load .env file. Use HINDSIGHT_DOTENV_PATH to specify a custom file (e.g., .env.kimi),
+# otherwise falls back to the default .env in current or parent directories.
+_dotenv_path = os.environ.get("HINDSIGHT_DOTENV_PATH")
+if _dotenv_path:
+    load_dotenv(_dotenv_path, override=True)
+else:
+    load_dotenv(find_dotenv(usecwd=True), override=True)
 
 logger = logging.getLogger(__name__)
 
