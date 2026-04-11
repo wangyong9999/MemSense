@@ -58,3 +58,20 @@ TASK.md
 # CHANGELOG.md
 
 blog-post*
+
+# MemSense internal docs (competitive analysis, strategy, architecture designs)
+OPTIMIZATION_INSIGHTS.md
+QUICKWIN_PLAN*.md
+AGENT_TASKS*.md
+docs/BENCHMARK_STRATEGY.md
+docs/BENCHMARK_GUIDE.md
+docs/PRECISION_PER_TOKEN_ARCHITECTURE*.md
+docs/IMPLEMENTATION_FEASIBILITY_ANALYSIS.md
+docs/V2_CHANGES.md
+
+# Environment variants
+.env.*
+
+# Large benchmark result files (>1MB, keep only summary baselines)
+hindsight-dev/benchmarks/baselines/*_eval_baseline.json
+hindsight-dev/benchmarks/baselines/locomo_kimi_baseline.json

@@ -363,6 +363,16 @@ class MemoryEngine(MemoryEngineInterface):
         )
         self._lazy_reranker = lazy_reranker if lazy_reranker is not None else config.lazy_reranker
 
+        # MemSense recall cache (in-memory LRU, invalidated on bank mutation)
+        self._recall_cache = None
+        if config.recall_cache_enabled:
+            from .search.recall_cache import RecallCache
+
+            self._recall_cache = RecallCache(
+                max_size=config.recall_cache_max_size,
+                ttl_seconds=config.recall_cache_ttl_seconds,
+            )
+
         # Apply defaults from config
         db_url = db_url or config.database_url
         memory_llm_provider = memory_llm_provider or config.llm_provider
@@ -2270,6 +2280,10 @@ class MemoryEngine(MemoryEngineInterface):
                 # Log but don't fail the retain - consolidation is non-critical
                 logger.warning(f"Failed to submit consolidation task for bank {bank_id}: {e}")
 
+        # MemSense recall cache — invalidate bank after mutation
+        if self._recall_cache is not None:
+            self._recall_cache.invalidate_bank(bank_id)
+
         if return_usage:
             return result, total_usage
         return result
@@ -2508,6 +2522,23 @@ class MemoryEngine(MemoryEngineInterface):
         effective_budget = budget if budget is not None else Budget.MID
         thinking_budget = budget_mapping[effective_budget]
 
+        # MemSense recall cache — early return on hit (skips entire pipeline)
+        _cache_key = None
+        if self._recall_cache is not None:
+            from .search.recall_cache import RecallCacheKey
+
+            _cache_key = RecallCacheKey.build(
+                bank_id, query, fact_type, thinking_budget,
+                max_tokens=max_tokens, tags=tags, tags_match=tags_match,
+                question_date=question_date, include_entities=include_entities,
+                include_chunks=include_chunks, include_source_facts=include_source_facts,
+            )
+            _cached = self._recall_cache.get(_cache_key)
+            if _cached is not None:
+                if not _quiet:
+                    logger.info(f"[RECALL {bank_id[:8]}] Cache HIT for query: {query[:50]}...")
+                return _cached
+
         # Log recall start with tags if present (skip if quiet mode for internal operations)
         if not _quiet:
             tags_info = f", tags={tags} ({tags_match})" if tags else ""
@@ -2663,6 +2694,10 @@ class MemoryEngine(MemoryEngineInterface):
             # Fire-and-forget token accounting (never blocks response)
             if result is not None:
                 asyncio.create_task(self._record_recall_tokens(bank_id, result))
+
+            # MemSense recall cache — store result on miss
+            if self._recall_cache is not None and result is not None and _cache_key is not None:
+                self._recall_cache.put(_cache_key, result)
 
             return result
         finally:
@@ -3861,6 +3896,10 @@ class MemoryEngine(MemoryEngineInterface):
                     f"Failed to submit consolidation after memory deletion for bank {bank_id_for_consolidation}: {e}"
                 )
 
+        # MemSense recall cache — invalidate bank after deletion
+        if self._recall_cache is not None and bank_id_for_consolidation:
+            self._recall_cache.invalidate_bank(bank_id_for_consolidation)
+
         return result
 
     async def delete_bank(
@@ -3984,6 +4023,10 @@ class MemoryEngine(MemoryEngineInterface):
                 await self.submit_async_consolidation(bank_id=bank_id, request_context=request_context)
             except Exception as e:
                 logger.warning(f"Failed to submit consolidation after bank deletion for bank {bank_id}: {e}")
+
+        # MemSense recall cache — invalidate bank after deletion
+        if self._recall_cache is not None:
+            self._recall_cache.invalidate_bank(bank_id)
 
         return result
 

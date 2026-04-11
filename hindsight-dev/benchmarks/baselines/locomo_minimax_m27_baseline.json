@@ -1,0 +1,37 @@
+{
+  "benchmark": "LoComo",
+  "date": "2026-04-07",
+  "model_config": {
+    "llm_provider": "minimax",
+    "llm_model": "MiniMax-M2.7",
+    "llm_base_url": "https://api.minimaxi.com/v1",
+    "embeddings_provider": "local",
+    "embeddings_model": "BAAI/bge-small-en-v1.5",
+    "reranker_provider": "local",
+    "reranker_model": "cross-encoder/ms-marco-MiniLM-L-6-v2"
+  },
+  "overall": {
+    "accuracy": 76.56,
+    "correct": 1179,
+    "total_questions": 1540,
+    "note": "category=5 (Yes/No) questions skipped by benchmark"
+  },
+  "per_conversation": [
+    {"conv_id": "conv-30", "sessions": 19, "questions": 81,  "correct": 75,  "accuracy": 92.59},
+    {"conv_id": "conv-41", "sessions": 32, "questions": 152, "correct": 136, "accuracy": 89.47},
+    {"conv_id": "conv-49", "sessions": 25, "questions": 156, "correct": 139, "accuracy": 89.10},
+    {"conv_id": "conv-48", "sessions": 30, "questions": 191, "correct": 170, "accuracy": 89.01},
+    {"conv_id": "conv-50", "sessions": 30, "questions": 158, "correct": 140, "accuracy": 88.61},
+    {"conv_id": "conv-42", "sessions": 29, "questions": 199, "correct": 176, "accuracy": 88.44},
+    {"conv_id": "conv-43", "sessions": 29, "questions": 178, "correct": 147, "accuracy": 82.58},
+    {"conv_id": "conv-44", "sessions": 28, "questions": 123, "correct": 96,  "accuracy": 78.05},
+    {"conv_id": "conv-26", "sessions": 19, "questions": 152, "correct": 65,  "accuracy": 42.76},
+    {"conv_id": "conv-47", "sessions": 31, "questions": 150, "correct": 35,  "accuracy": 23.33}
+  ],
+  "analysis": {
+    "top8_avg_accuracy": 87.23,
+    "top8_note": "Excluding conv-26 (42.8%) and conv-47 (23.3%) as outliers",
+    "outliers": ["conv-26", "conv-47"],
+    "outlier_hypothesis": "MiniMax M2.7 may underperform on specific question types in these conversations — needs --only-failed analysis"
+  }
+}

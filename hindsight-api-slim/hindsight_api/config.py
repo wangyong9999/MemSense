@@ -329,6 +329,11 @@ ENV_WEBHOOK_DELIVERY_POLL_INTERVAL_SECONDS = "HINDSIGHT_API_WEBHOOK_DELIVERY_POL
 ENV_SKIP_LLM_VERIFICATION = "HINDSIGHT_API_SKIP_LLM_VERIFICATION"
 ENV_LAZY_RERANKER = "HINDSIGHT_API_LAZY_RERANKER"
 
+# MemSense recall cache
+ENV_RECALL_CACHE_ENABLED = "HINDSIGHT_API_RECALL_CACHE_ENABLED"
+ENV_RECALL_CACHE_MAX_SIZE = "HINDSIGHT_API_RECALL_CACHE_MAX_SIZE"
+ENV_RECALL_CACHE_TTL_SECONDS = "HINDSIGHT_API_RECALL_CACHE_TTL_SECONDS"
+
 # Database migrations
 ENV_RUN_MIGRATIONS_ON_STARTUP = "HINDSIGHT_API_RUN_MIGRATIONS_ON_STARTUP"
 
@@ -825,6 +830,11 @@ class HindsightConfig:
     skip_llm_verification: bool
     lazy_reranker: bool
 
+    # MemSense recall cache
+    recall_cache_enabled: bool
+    recall_cache_max_size: int
+    recall_cache_ttl_seconds: int
+
     # Database migrations
     run_migrations_on_startup: bool
 
@@ -1240,6 +1250,10 @@ class HindsightConfig:
             # Optimization flags
             skip_llm_verification=os.getenv(ENV_SKIP_LLM_VERIFICATION, "false").lower() == "true",
             lazy_reranker=os.getenv(ENV_LAZY_RERANKER, "false").lower() == "true",
+            # MemSense recall cache
+            recall_cache_enabled=os.getenv(ENV_RECALL_CACHE_ENABLED, "false").lower() == "true",
+            recall_cache_max_size=int(os.getenv(ENV_RECALL_CACHE_MAX_SIZE, "256")),
+            recall_cache_ttl_seconds=int(os.getenv(ENV_RECALL_CACHE_TTL_SECONDS, "300")),
             # Retain settings
             retain_max_completion_tokens=int(
                 os.getenv(ENV_RETAIN_MAX_COMPLETION_TOKENS, str(DEFAULT_RETAIN_MAX_COMPLETION_TOKENS))
