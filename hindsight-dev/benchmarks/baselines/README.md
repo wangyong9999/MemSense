@@ -16,15 +16,11 @@
 |------|---------|--------|--------|------|------|
 | MiniMax M2.7 | 50题 | **88.0%** | 50 | 2026-04-09 | `longmemeval_minimax_m27_baseline.json` |
 
-### 竞品参考值
+### 参考值
 
 | 系统 | LoComo | LongMemEval | 来源 |
 |------|--------|-------------|------|
-| Hindsight官方 | - | 91.4% | Hindsight README |
-| MemPalace (raw) | 88.9% | 96.6% | MemPalace BENCHMARKS.md |
-| MemPalace (+Haiku) | 100% | 100% | MemPalace BENCHMARKS.md |
-| Mem0 | 30-45% | 49% | 第三方评测 |
-| Zep | - | 63.8% | 第三方评测 |
+| Hindsight官方 (v0.4.19) | 92.0% | 94.6% | Hindsight blog (2026-03-23) |
 
 ## 注意事项
 

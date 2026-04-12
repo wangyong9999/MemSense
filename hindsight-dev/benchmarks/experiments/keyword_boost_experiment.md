@@ -5,7 +5,7 @@ Status: **Completed — No measurable improvement, flag kept OFF**
 
 ## Hypothesis
 
-MemPalace demonstrated +1.2% on LongMemEval by adding a keyword-overlap reranking
+Prior work demonstrated +1.2% on LongMemEval by adding a keyword-overlap reranking
 layer after BM25+semantic fusion. Applying the same technique to MemSense's recall
 pipeline should yield +1-2% precision improvement.
 
@@ -62,7 +62,7 @@ Pure recall A/B test (no LLM calls needed):
 2. **Pre-filter doesn't trigger**: `reranker_max_candidates=175` exceeds typical candidate count,
    so pre-rerank boost doesn't change which candidates enter the cross-encoder.
 
-3. **MemPalace had no cross-encoder**: Their +1.2% was measured on a pipeline without neural
+3. **Prior work had no cross-encoder**: The +1.2% was measured on a pipeline without neural
    reranking — keyword overlap was the *only* exact-match signal. Hindsight's cross-encoder
    already captures this, making the boost redundant.
 

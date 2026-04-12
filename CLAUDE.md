@@ -110,6 +110,7 @@ cd hindsight-control-plane && npm run dev
 - `link_expansion_retrieval.py`: Link expansion graph retrieval
 - `fusion.py`: Reciprocal rank fusion for combining results
 - `reranking.py`: Cross-encoder reranking
+- `recall_cache.py`: MemSense recall result cache (Tier 0 exact + Tier 1 fuzzy Jaccard)
 
 ### API Layer (hindsight-api-slim/hindsight_api/api/)
 - `http.py`: FastAPI HTTP routers for all REST endpoints
@@ -322,3 +323,9 @@ Optional (uses local models by default):
 - `HINDSIGHT_API_RERANKER_PROVIDER`: local (default) or tei
 - `HINDSIGHT_API_DATABASE_URL`: External PostgreSQL (uses embedded pg0 by default)
 - `HINDSIGHT_API_ENABLE_BANK_CONFIG_API`: Enable per-bank config API (default: true)
+
+MemSense recall cache (disabled by default):
+- `HINDSIGHT_API_RECALL_CACHE_ENABLED`: Enable in-memory recall cache (default: false)
+- `HINDSIGHT_API_RECALL_CACHE_MAX_SIZE`: LRU cache capacity (default: 256)
+- `HINDSIGHT_API_RECALL_CACHE_TTL_SECONDS`: Cache entry TTL (default: 300)
+- `HINDSIGHT_API_RECALL_CACHE_FUZZY_THRESHOLD`: Jaccard similarity threshold for fuzzy matching (default: 0.7, set 0 to disable fuzzy)

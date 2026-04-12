@@ -371,6 +371,7 @@ class MemoryEngine(MemoryEngineInterface):
             self._recall_cache = RecallCache(
                 max_size=config.recall_cache_max_size,
                 ttl_seconds=config.recall_cache_ttl_seconds,
+                fuzzy_threshold=config.recall_cache_fuzzy_threshold,
             )
 
         # Apply defaults from config
@@ -2534,6 +2535,8 @@ class MemoryEngine(MemoryEngineInterface):
                 include_chunks=include_chunks, include_source_facts=include_source_facts,
             )
             _cached = self._recall_cache.get(_cache_key)
+            if _cached is None:
+                _cached = self._recall_cache.find_similar(_cache_key)
             if _cached is not None:
                 if not _quiet:
                     logger.info(f"[RECALL {bank_id[:8]}] Cache HIT for query: {query[:50]}...")

@@ -234,7 +234,7 @@ class TestStats:
     def test_initial_stats(self):
         cache = RecallCache(max_size=10, ttl_seconds=60)
         s = cache.stats()
-        assert s["hits"] == 0
+        assert s["exact_hits"] == 0
         assert s["misses"] == 0
         assert s["hit_rate"] == 0.0
         assert s["size"] == 0
@@ -248,7 +248,7 @@ class TestStats:
         cache.get(key)  # hit
 
         s = cache.stats()
-        assert s["hits"] == 2
+        assert s["exact_hits"] == 2
         assert s["misses"] == 1
         assert s["hit_rate"] == pytest.approx(2 / 3, rel=0.01)
         assert s["size"] == 1
@@ -260,7 +260,7 @@ class TestStats:
         cache.clear()
 
         s = cache.stats()
-        assert s["hits"] == 0
+        assert s["exact_hits"] == 0
         assert s["size"] == 0
 
 
@@ -336,3 +336,137 @@ class TestRealisticFlow:
         if cache is not None:
             cache.get(_key())  # should never reach here
         # No crash = pass
+
+
+# ===================================================================
+# Tier 1: Fuzzy matching
+# ===================================================================
+
+
+class TestFuzzyMatching:
+    def test_similar_query_hits(self):
+        """Queries with high token overlap should fuzzy-match."""
+        cache = RecallCache(max_size=10, ttl_seconds=60, fuzzy_threshold=0.6)
+        # Store: "What games does Jolene play with her partner"
+        k1 = _key(query="What games does Jolene play with her partner")
+        cache.put(k1, "result_games")
+
+        # Lookup: "Which games does Jolene play with partner" (similar but not identical)
+        k2 = _key(query="Which games does Jolene play with partner")
+        assert cache.get(k2) is None  # Tier 0 miss
+        assert cache.find_similar(k2) == "result_games"  # Tier 1 hit
+
+    def test_different_query_misses(self):
+        """Queries with low token overlap should not fuzzy-match."""
+        cache = RecallCache(max_size=10, ttl_seconds=60, fuzzy_threshold=0.6)
+        k1 = _key(query="What games does Jolene play")
+        cache.put(k1, "result_games")
+
+        k2 = _key(query="When did Deborah visit the park")
+        assert cache.find_similar(k2) is None
+
+    def test_temporal_query_excluded(self):
+        """Queries with relative temporal expressions skip fuzzy matching."""
+        cache = RecallCache(max_size=10, ttl_seconds=60, fuzzy_threshold=0.5)
+        k1 = _key(query="What did Alice do recently at work")
+        cache.put(k1, "result_recent")
+
+        # Same tokens except "recently" vs "yesterday" — should NOT fuzzy match
+        k2 = _key(query="What did Alice do yesterday at work")
+        assert cache.find_similar(k2) is None  # temporal guard blocks it
+
+    def test_temporal_absolute_not_excluded(self):
+        """Queries with absolute dates (no relative expressions) are OK for fuzzy."""
+        cache = RecallCache(max_size=10, ttl_seconds=60, fuzzy_threshold=0.5)
+        k1 = _key(query="What happened in March 2024 with the project")
+        cache.put(k1, "result_march")
+
+        k2 = _key(query="What happened with the project in March 2024")
+        assert cache.find_similar(k2) == "result_march"
+
+    def test_short_query_excluded(self):
+        """Queries with fewer than 2 meaningful tokens skip fuzzy matching."""
+        cache = RecallCache(max_size=10, ttl_seconds=60, fuzzy_threshold=0.5)
+        k1 = _key(query="hello")
+        cache.put(k1, "result_hello")
+
+        k2 = _key(query="hi")
+        assert cache.find_similar(k2) is None
+
+    def test_different_bank_no_fuzzy(self):
+        """Fuzzy matching requires same bank_id."""
+        cache = RecallCache(max_size=10, ttl_seconds=60, fuzzy_threshold=0.5)
+        k1 = _key(bank_id="bank_a", query="What games does Jolene play")
+        cache.put(k1, "result_a")
+
+        k2 = _key(bank_id="bank_b", query="What games does Jolene play")
+        assert cache.find_similar(k2) is None
+
+    def test_max_tokens_must_match_exactly(self):
+        """Fuzzy hit requires exact max_tokens match (cached result is already token-filtered)."""
+        cache = RecallCache(max_size=10, ttl_seconds=60, fuzzy_threshold=0.5)
+        k1 = RecallCacheKey.build("b", "What games does Jolene play", ["world"], 300, max_tokens=4096)
+        cache.put(k1, "result_4k")
+
+        # Different max_tokens — should NOT match even with similar query
+        k2 = RecallCacheKey.build("b", "Which games does Jolene play", ["world"], 300, max_tokens=8192)
+        assert cache.find_similar(k2) is None
+
+        # Same max_tokens — should match
+        k3 = RecallCacheKey.build("b", "Which games does Jolene play", ["world"], 300, max_tokens=4096)
+        assert cache.find_similar(k3) == "result_4k"
+
+    def test_fuzzy_stats_tracked(self):
+        """Fuzzy hits are tracked separately in stats."""
+        cache = RecallCache(max_size=10, ttl_seconds=60, fuzzy_threshold=0.5)
+        k1 = _key(query="What games does Jolene play with partner")
+        cache.put(k1, "result")
+
+        k2 = _key(query="Which games does Jolene play with partner")
+        cache.get(k2)  # Tier 0 miss
+        cache.find_similar(k2)  # Tier 1 hit
+
+        s = cache.stats()
+        assert s["exact_hits"] == 0
+        assert s["fuzzy_hits"] == 1
+        assert s["misses"] == 1
+
+    def test_chinese_fuzzy_match(self):
+        """Chinese queries with matching segments should fuzzy-match."""
+        cache = RecallCache(max_size=10, ttl_seconds=60, fuzzy_threshold=0.5)
+        # "客户 张三 的 风控预警 阈值" → tokens: {客户张三, 风控预警阈值, ...}
+        k1 = _key(query="customer 张三 risk rating query")
+        cache.put(k1, "result_risk")
+
+        # Same core tokens, different order/stopwords
+        k2 = _key(query="query risk rating for 张三 customer")
+        assert cache.find_similar(k2) is not None
+
+    def test_chinese_temporal_excluded(self):
+        """Chinese relative temporal expressions block fuzzy matching."""
+        cache = RecallCache(max_size=10, ttl_seconds=60, fuzzy_threshold=0.5)
+        k1 = _key(query="客户最近的交易记录")
+        cache.put(k1, "result_recent")
+
+        k2 = _key(query="客户之前的交易记录")
+        assert cache.find_similar(k2) is None
+
+    def test_threshold_zero_disables_fuzzy(self):
+        """Setting threshold to 0 disables fuzzy matching entirely."""
+        cache = RecallCache(max_size=10, ttl_seconds=60, fuzzy_threshold=0.0)
+        k1 = _key(query="What games does Jolene play")
+        cache.put(k1, "result")
+
+        k2 = _key(query="What games does Jolene play")  # even identical query
+        assert cache.find_similar(k2) is None
+
+    def test_invalidation_affects_fuzzy(self):
+        """Bank invalidation should also affect fuzzy hits."""
+        cache = RecallCache(max_size=10, ttl_seconds=60, fuzzy_threshold=0.5)
+        k1 = _key(bank_id="bx", query="What games does Jolene play with partner")
+        cache.put(k1, "old_result")
+
+        cache.invalidate_bank("bx")
+
+        k2 = _key(bank_id="bx", query="Which games does Jolene play with partner")
+        assert cache.find_similar(k2) is None
