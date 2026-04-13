@@ -383,6 +383,20 @@ async def _extract_and_embed(
         for fact in extracted_facts:
             fact.fact_type = fact_type_override
 
+    # MemSense post-extraction enrichment (date validation + detail preservation)
+    from ...config import get_config as _get_config
+
+    if _get_config().retain_post_extraction_enabled:
+        from .post_extraction.enrichment import enrich_extracted_facts
+
+        enrichment_stats = enrich_extracted_facts(extracted_facts, chunks)
+        if enrichment_stats.get("date_corrected", 0) > 0 or enrichment_stats.get("detail_enriched", 0) > 0:
+            log_buffer.append(
+                f"  Post-extraction enrichment: dates_corrected={enrichment_stats.get('date_corrected', 0)}, "
+                f"details_enriched={enrichment_stats.get('detail_enriched', 0)} "
+                f"in {enrichment_stats.get('total_time', 0):.3f}s"
+            )
+
     step_start = time.time()
     augmented_texts = embedding_processing.augment_texts_with_dates(extracted_facts, format_date_fn)
     embeddings = await embedding_processing.generate_embeddings_batch(embeddings_model, augmented_texts)

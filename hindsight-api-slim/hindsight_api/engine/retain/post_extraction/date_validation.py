@@ -1,0 +1,202 @@
+"""
+Post-extraction date validation and correction.
+
+Validates dates extracted by the LLM against the session date using
+dateparser as an independent reference. Corrects common LLM errors:
+- "last Friday" computed as 2 weeks ago instead of 1 week
+- "last Wednesday" off by ±1 week
+- Relative expressions resolved to wrong absolute dates
+
+The key insight: the LLM does date arithmetic in its head during fact
+extraction, and frequently gets it wrong by ±7 days. dateparser, as a
+deterministic parser, provides a reliable second opinion.
+"""
+
+from __future__ import annotations
+
+import logging
+import re
+from datetime import datetime, timedelta, timezone
+
+logger = logging.getLogger(__name__)
+
+# Relative temporal expressions that dateparser can resolve.
+# We only attempt correction for these patterns — absolute dates
+# ("March 15, 2024") are left as-is since they don't involve computation.
+_RELATIVE_PATTERNS = re.compile(
+    r"(?i)\b("
+    r"last\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)"
+    r"|last\s+(?:week|month|year)"
+    r"|yesterday|the\s+day\s+before"
+    r"|(?:a\s+)?(?:few|couple)\s+(?:days?|weeks?)\s+ago"
+    r"|this\s+past\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)"
+    r"|the\s+(?:previous|prior)\s+(?:week|month|day)"
+    r")\b"
+)
+
+# Pattern to find "(YYYY-MM-DD" or "YYYY-MM-DD)" or standalone ISO dates in fact text
+_ISO_DATE_IN_TEXT = re.compile(r"\b(\d{4}-\d{2}-\d{2})\b")
+
+# Pattern to find "Month DD, YYYY" or "DD Month YYYY" in fact text
+_READABLE_DATE_IN_TEXT = re.compile(
+    r"\b("
+    r"(?:January|February|March|April|May|June|July|August|September|October|November|December)"
+    r"\s+\d{1,2}(?:,\s*|\s+)\d{4}"
+    r"|"
+    r"\d{1,2}\s+"
+    r"(?:January|February|March|April|May|June|July|August|September|October|November|December)"
+    r"(?:,?\s+\d{4})?"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def _find_relative_expression(text: str) -> str | None:
+    """Extract the first relative temporal expression from text."""
+    m = _RELATIVE_PATTERNS.search(text)
+    return m.group(0) if m else None
+
+
+def _parse_date_with_dateparser(
+    expression: str,
+    reference_date: datetime,
+) -> datetime | None:
+    """Parse a relative date expression using dateparser.search_dates.
+
+    Uses search_dates instead of dateparser.parse because parse() fails
+    on "last Friday"/"last Monday" in dateparser 1.2.x, while search_dates
+    handles them correctly.
+
+    Uses PREFER_DATES_FROM='past' to match conversational context
+    (people usually talk about things that already happened).
+    """
+    try:
+        from dateparser.search import search_dates
+
+        results = search_dates(
+            expression,
+            languages=["en"],
+            settings={
+                "RELATIVE_BASE": reference_date.replace(tzinfo=None),
+                "PREFER_DATES_FROM": "past",
+            },
+        )
+        if results:
+            # Return the first date found
+            _, parsed_date = results[0]
+            return parsed_date.replace(tzinfo=timezone.utc)
+    except Exception as e:
+        logger.debug(f"dateparser failed for '{expression}': {e}")
+    return None
+
+
+def _replace_date_in_fact_text(
+    text: str,
+    old_date: datetime,
+    new_date: datetime,
+) -> str:
+    """Replace occurrences of old_date with new_date in fact text.
+
+    Handles both ISO format and readable format.
+    """
+    old_iso = old_date.strftime("%Y-%m-%d")
+    new_iso = new_date.strftime("%Y-%m-%d")
+    new_readable = new_date.strftime("%B %d, %Y").replace(" 0", " ")
+
+    # Replace ISO dates
+    text = text.replace(old_iso, new_iso)
+
+    # Replace readable dates (e.g., "July 14, 2023" → "July 21, 2023")
+    old_readables = [
+        old_date.strftime("%B %d, %Y"),
+        old_date.strftime("%B %d, %Y").replace(" 0", " "),
+        old_date.strftime("%B %-d, %Y") if hasattr(old_date, "strftime") else "",
+        old_date.strftime("%d %B %Y"),
+        old_date.strftime("%d %B, %Y"),
+    ]
+    for old_r in old_readables:
+        if old_r and old_r in text:
+            text = text.replace(old_r, new_readable)
+            break
+
+    return text
+
+
+def validate_and_correct_dates(
+    facts: list,
+    chunks: list,
+    tolerance_days: int = 2,
+) -> tuple[int, int]:
+    """Validate and correct dates in extracted facts.
+
+    For each fact with an occurred_start date and a relative temporal
+    expression in its source chunk, uses dateparser to independently
+    compute the date. If the LLM's date differs by more than
+    ``tolerance_days``, replaces it with dateparser's result.
+
+    Args:
+        facts: List of ExtractedFact objects (mutated in-place).
+        chunks: List of ChunkMetadata objects (for accessing source text).
+        tolerance_days: Maximum acceptable difference between LLM and
+            dateparser dates before correction is applied.
+
+    Returns:
+        Tuple of (checked_count, corrected_count).
+    """
+    # Build chunk lookup by chunk_index
+    chunk_by_index = {c.chunk_index: c for c in chunks}
+
+    checked = 0
+    corrected = 0
+
+    for fact in facts:
+        if fact.occurred_start is None or fact.mentioned_at is None:
+            continue
+
+        # Find the source chunk text
+        chunk = chunk_by_index.get(fact.chunk_index)
+        chunk_text = chunk.chunk_text if chunk else ""
+
+        # Look for relative temporal expression in BOTH fact text and chunk text
+        # (the expression might be in the original dialogue but not in the extracted fact)
+        relative_expr = _find_relative_expression(fact.fact_text)
+        if not relative_expr and chunk_text:
+            relative_expr = _find_relative_expression(chunk_text)
+
+        if not relative_expr:
+            continue
+
+        checked += 1
+
+        # Use dateparser with mentioned_at as reference
+        computed_date = _parse_date_with_dateparser(relative_expr, fact.mentioned_at)
+        if computed_date is None:
+            continue
+
+        # Compare with LLM's date
+        diff_days = abs((computed_date - fact.occurred_start.replace(tzinfo=timezone.utc)).days)
+
+        if diff_days > tolerance_days:
+            old_date = fact.occurred_start
+            new_date = computed_date
+
+            logger.info(
+                "Date corrected: %s → %s (expr='%s', ref=%s, diff=%dd)",
+                old_date.strftime("%Y-%m-%d"),
+                new_date.strftime("%Y-%m-%d"),
+                relative_expr,
+                fact.mentioned_at.strftime("%Y-%m-%d"),
+                diff_days,
+            )
+
+            # Update structured dates
+            fact.occurred_start = new_date
+            if fact.occurred_end and fact.occurred_end == old_date:
+                fact.occurred_end = new_date
+
+            # Update date text in fact_text
+            fact.fact_text = _replace_date_in_fact_text(fact.fact_text, old_date, new_date)
+
+            corrected += 1
+
+    return checked, corrected

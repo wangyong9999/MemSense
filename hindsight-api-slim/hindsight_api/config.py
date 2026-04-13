@@ -335,6 +335,9 @@ ENV_RECALL_CACHE_MAX_SIZE = "HINDSIGHT_API_RECALL_CACHE_MAX_SIZE"
 ENV_RECALL_CACHE_TTL_SECONDS = "HINDSIGHT_API_RECALL_CACHE_TTL_SECONDS"
 ENV_RECALL_CACHE_FUZZY_THRESHOLD = "HINDSIGHT_API_RECALL_CACHE_FUZZY_THRESHOLD"
 
+# MemSense retain post-extraction enrichment
+ENV_RETAIN_POST_EXTRACTION_ENABLED = "HINDSIGHT_API_RETAIN_POST_EXTRACTION_ENABLED"
+
 # Database migrations
 ENV_RUN_MIGRATIONS_ON_STARTUP = "HINDSIGHT_API_RUN_MIGRATIONS_ON_STARTUP"
 
@@ -837,6 +840,9 @@ class HindsightConfig:
     recall_cache_ttl_seconds: int
     recall_cache_fuzzy_threshold: float
 
+    # MemSense retain post-extraction enrichment
+    retain_post_extraction_enabled: bool
+
     # Database migrations
     run_migrations_on_startup: bool
 
@@ -1257,6 +1263,8 @@ class HindsightConfig:
             recall_cache_max_size=int(os.getenv(ENV_RECALL_CACHE_MAX_SIZE, "256")),
             recall_cache_ttl_seconds=int(os.getenv(ENV_RECALL_CACHE_TTL_SECONDS, "300")),
             recall_cache_fuzzy_threshold=float(os.getenv(ENV_RECALL_CACHE_FUZZY_THRESHOLD, "0.7")),
+            # MemSense retain post-extraction enrichment
+            retain_post_extraction_enabled=os.getenv(ENV_RETAIN_POST_EXTRACTION_ENABLED, "false").lower() == "true",
             # Retain settings
             retain_max_completion_tokens=int(
                 os.getenv(ENV_RETAIN_MAX_COMPLETION_TOKENS, str(DEFAULT_RETAIN_MAX_COMPLETION_TOKENS))
