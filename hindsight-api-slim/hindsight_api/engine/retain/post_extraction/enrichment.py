@@ -22,6 +22,7 @@ def enrich_extracted_facts(
     *,
     date_validation_enabled: bool = True,
     detail_preservation_enabled: bool = True,
+    fact_format_clean_enabled: bool = False,
     date_tolerance_days: int = 2,
 ) -> dict:
     """Run all post-extraction enrichment steps.
@@ -57,9 +58,19 @@ def enrich_extracted_facts(
         stats["detail_enriched"] = enriched
         stats["detail_time"] = round(time.time() - step_start, 3)
 
+    # Fact format cleaning (independent flag, runs LAST after other enrichments)
+    if fact_format_clean_enabled and facts:
+        from .fact_format import clean_fact_format
+
+        step_start = time.time()
+        checked, cleaned = clean_fact_format(facts)
+        stats["format_checked"] = checked
+        stats["format_cleaned"] = cleaned
+        stats["format_time"] = round(time.time() - step_start, 3)
+
     stats["total_time"] = round(time.time() - start, 3)
 
-    if stats.get("date_corrected", 0) > 0 or stats.get("detail_enriched", 0) > 0:
+    if stats.get("date_corrected", 0) > 0 or stats.get("detail_enriched", 0) > 0 or stats.get("format_cleaned", 0) > 0:
         logger.info(
             "Post-extraction enrichment: %s",
             ", ".join(f"{k}={v}" for k, v in stats.items()),

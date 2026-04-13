@@ -578,3 +578,189 @@ class TestLoCoMoDetailRegressions:
         # 'Marley' might be detected as a proper noun in co-occurrence with 'Jon'
         # but 'water' is too generic. This tests partial recovery.
         # The fact already has 'natural light', so that won't be re-added.
+
+
+# ===================================================================
+# Fact format cleaning (P1)
+# ===================================================================
+
+
+class TestFactFormatClean:
+    """Tests for pipe-delimited metadata stripping."""
+
+    def test_strips_when_involving_why(self):
+        """Full metadata suffix should be stripped."""
+        from hindsight_api.engine.retain.post_extraction.fact_format import clean_fact_format
+
+        fact = FakeFact(
+            fact_text="Jolene finished a project | When: Last week | Involving: Jolene | Big milestone",
+            entities=["Jolene"],
+        )
+        checked, cleaned = clean_fact_format([fact])
+        assert cleaned == 1
+        assert fact.fact_text == "Jolene finished a project"
+        assert "|" not in fact.fact_text
+
+    def test_preserves_what_with_entity(self):
+        """When 'what' already mentions the entity, no suffix added."""
+        from hindsight_api.engine.retain.post_extraction.fact_format import clean_fact_format
+
+        fact = FakeFact(
+            fact_text="Audrey's favorite recipe is Chicken Pot Pie | Involving: Audrey | Family tradition",
+            entities=["Audrey"],
+        )
+        clean_fact_format([fact])
+        assert fact.fact_text == "Audrey's favorite recipe is Chicken Pot Pie"
+
+    def test_appends_entity_when_missing_from_what(self):
+        """When 'what' has no entity mention, primary entity is appended."""
+        from hindsight_api.engine.retain.post_extraction.fact_format import clean_fact_format
+
+        fact = FakeFact(
+            fact_text="Passed the adoption interviews last Friday | Involving: Caroline | Significant step",
+            entities=["Caroline"],
+        )
+        clean_fact_format([fact])
+        assert fact.fact_text == "Passed the adoption interviews last Friday (Caroline)"
+
+    def test_no_pipe_no_change(self):
+        """Facts without pipes are left unchanged."""
+        from hindsight_api.engine.retain.post_extraction.fact_format import clean_fact_format
+
+        fact = FakeFact(fact_text="Simple fact without metadata")
+        checked, cleaned = clean_fact_format([fact])
+        assert cleaned == 0
+        assert fact.fact_text == "Simple fact without metadata"
+
+    def test_empty_entities_no_suffix(self):
+        """When there are no entities, just strip the metadata."""
+        from hindsight_api.engine.retain.post_extraction.fact_format import clean_fact_format
+
+        fact = FakeFact(
+            fact_text="It was a sunny day | Weather observation",
+            entities=[],
+        )
+        clean_fact_format([fact])
+        assert fact.fact_text == "It was a sunny day"
+
+    def test_token_savings(self):
+        """Verify actual token reduction on realistic facts."""
+        from hindsight_api.engine.retain.post_extraction.fact_format import clean_fact_format
+
+        facts = [
+            FakeFact(
+                fact_text="Jolene finished an engineering project last week | When: Last week (2023-01-16 to 2023-01-22) | Involving: Jolene",
+                entities=["Jolene"],
+            ),
+            FakeFact(
+                fact_text="Deborah visited her mother's old house | When: Last week | Involving: Deborah, Deborah's mother | Holds memories",
+                entities=["Deborah"],
+            ),
+            FakeFact(
+                fact_text="Caroline joined a mentorship program | Involving: Caroline | Finding it rewarding",
+                entities=["Caroline"],
+            ),
+        ]
+        before_len = sum(len(f.fact_text) for f in facts)
+        clean_fact_format(facts)
+        after_len = sum(len(f.fact_text) for f in facts)
+
+        savings = (before_len - after_len) / before_len * 100
+        assert savings > 30  # Should save at least 30%
+
+    def test_multiple_entities_uses_first(self):
+        """When what lacks entity, uses the first one from the list."""
+        from hindsight_api.engine.retain.post_extraction.fact_format import clean_fact_format
+
+        fact = FakeFact(
+            fact_text="Had a great conversation about life | Involving: Deborah, Anna",
+            entities=["Deborah", "Anna"],
+        )
+        clean_fact_format([fact])
+        assert fact.fact_text == "Had a great conversation about life (Deborah)"
+
+
+class TestFactFormatCleanRegression:
+    """Regression tests from actual LoCoMo facts."""
+
+    def test_conv48_renewable_energy(self):
+        """A1 case: LLM ignored this fact. Format cleaning should make it cleaner."""
+        from hindsight_api.engine.retain.post_extraction.fact_format import clean_fact_format
+
+        fact = FakeFact(
+            fact_text=(
+                "Jolene is interested in two projects: developing renewable energy (solar) "
+                "to help communities and supplying clean water to those with limited access "
+                "| Involving: Jolene | Align with her beliefs about sustainability"
+            ),
+            entities=["Jolene"],
+        )
+        clean_fact_format([fact])
+        assert "renewable energy" in fact.fact_text
+        assert "Involving" not in fact.fact_text
+        assert "sustainability" not in fact.fact_text
+
+    def test_conv44_chicken_pot_pie(self):
+        """A2 case: competing facts. Clean format reduces ambiguity."""
+        from hindsight_api.engine.retain.post_extraction.fact_format import clean_fact_format
+
+        facts = [
+            FakeFact(
+                fact_text="Audrey's favorite recipe is Chicken Pot Pie, a family recipe passed down for years | Involving: Audrey | Family tradition",
+                entities=["Audrey"],
+            ),
+            FakeFact(
+                fact_text="Audrey's roasted chicken recipe is based on Mediterranean flavors | Involving: Audrey | Comfort food",
+                entities=["Audrey"],
+            ),
+        ]
+        clean_fact_format(facts)
+        # Both should be clean and distinguishable
+        assert "Chicken Pot Pie" in facts[0].fact_text
+        assert "Mediterranean" in facts[1].fact_text
+        assert "|" not in facts[0].fact_text
+        assert "|" not in facts[1].fact_text
+
+    def test_enrichment_integration_with_format_flag(self):
+        """Enrichment respects independent format flag."""
+        from hindsight_api.engine.retain.post_extraction.enrichment import enrich_extracted_facts
+
+        fact = FakeFact(
+            fact_text="A fact with metadata | Involving: Someone | Reason",
+            entities=["Someone"],
+            chunk_index=0,
+        )
+        chunk = FakeChunk(chunk_text="Some source text", chunk_index=0)
+
+        # With format clean disabled (default)
+        stats1 = enrich_extracted_facts([fact], [chunk], fact_format_clean_enabled=False)
+        # fact should still have pipe
+        # (can't check because other enrichments may not modify it)
+
+        # With format clean enabled
+        fact2 = FakeFact(
+            fact_text="Another fact | Involving: Person | Context",
+            entities=["Person"],
+            chunk_index=0,
+        )
+        stats2 = enrich_extracted_facts([fact2], [chunk], fact_format_clean_enabled=True)
+        assert stats2.get("format_cleaned", 0) >= 1
+        assert "|" not in fact2.fact_text
+
+    def test_config_flag_independent(self):
+        """Format clean flag is independent from post_extraction flag."""
+        import os
+
+        from hindsight_api.config import _get_raw_config, clear_config_cache
+
+        os.environ["HINDSIGHT_API_RETAIN_POST_EXTRACTION_ENABLED"] = "false"
+        os.environ["HINDSIGHT_API_RETAIN_FACT_FORMAT_CLEAN_ENABLED"] = "true"
+        clear_config_cache()
+        cfg = _get_raw_config()
+        assert cfg.retain_post_extraction_enabled is False
+        assert cfg.retain_fact_format_clean_enabled is True
+
+        # Clean up
+        os.environ.pop("HINDSIGHT_API_RETAIN_FACT_FORMAT_CLEAN_ENABLED", None)
+        os.environ.pop("HINDSIGHT_API_RETAIN_POST_EXTRACTION_ENABLED", None)
+        clear_config_cache()
