@@ -42,6 +42,30 @@ export HINDSIGHT_API_DATABASE_URL="pg0://${INSTANCE}"
 ENABLE_OBS="${ENABLE_OBS:-true}"
 export HINDSIGHT_API_ENABLE_OBSERVATIONS="${ENABLE_OBS}"
 
+# Retain mission: precision-preserving instructions for concise extraction.
+# Complements (not replaces) concise mode's selectivity:
+# - Concise mode decides WHICH facts to extract (skip greetings, filler)
+# - Mission controls HOW facts are written (preserve specific nouns, not generalize)
+#
+# Addresses 19/25 extraction-gap errors in LoCoMo baseline analysis:
+# - 9 quantity losses (nine→multiple, four months→several)
+# - 5 proper noun losses (hoodie→clothing, Mafia→board game)
+# - 3 place name losses (Talkeetna→mountain, Indiana→state)
+# - 2 health term losses (asthma→health condition)
+if [ -n "${RETAIN_MISSION}" ]; then
+    export HINDSIGHT_API_RETAIN_MISSION="${RETAIN_MISSION}"
+elif [ -z "${HINDSIGHT_API_RETAIN_MISSION}" ]; then
+    export HINDSIGHT_API_RETAIN_MISSION="When writing the what field for each fact, preserve specific details verbatim from the source text. Do not generalize specific terms into broad categories.
+
+Preserve exactly:
+- Quantities and durations: write the exact number (\"nine tournaments\" not \"multiple tournaments\", \"four months\" not \"several months\", \"twice\" not \"multiple times\")
+- Product, game, book, and food names: use the exact name spoken (\"hoodie\" not \"clothing item\", \"Chicken Pot Pie\" not \"a recipe\", \"Zelda BOTW\" not \"a video game\", \"Mafia\" not \"a board game\")
+- Place names: keep geographical specifics (\"Talkeetna\" not \"a mountain\", \"Indiana\" not \"a US state\", \"Phuket\" not \"a retreat location\")
+- Health and medical terms: name the condition (\"asthma\" not \"health issue\", \"obesity\" not \"health problem\")
+
+The concise format still applies — keep each fact to 1-2 sentences. But within that space, use the speaker's original specific words rather than generic substitutes."
+fi
+
 # Optional: max conversations to ingest
 MAX_ITEMS_ARG=""
 if [ -n "${MAX_ITEMS}" ]; then
@@ -55,6 +79,7 @@ echo "  Profile:      $PROFILE"
 echo "  Instance:     pg0://${INSTANCE}"
 echo "  Env:          $ENV_FILE"
 echo "  Observations: ${ENABLE_OBS}"
+echo "  Mission:      $([ -n "${HINDSIGHT_API_RETAIN_MISSION}" ] && echo 'set' || echo 'none')"
 echo "  Max items:    ${MAX_ITEMS:-all}"
 echo "============================================"
 echo ""

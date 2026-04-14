@@ -329,3 +329,8 @@ MemSense recall cache (disabled by default):
 - `HINDSIGHT_API_RECALL_CACHE_MAX_SIZE`: LRU cache capacity (default: 256)
 - `HINDSIGHT_API_RECALL_CACHE_TTL_SECONDS`: Cache entry TTL (default: 300)
 - `HINDSIGHT_API_RECALL_CACHE_FUZZY_THRESHOLD`: Jaccard similarity threshold for fuzzy matching (default: 0.7, set 0 to disable fuzzy)
+
+MemSense retain enrichment (disabled by default):
+- `HINDSIGHT_API_RETAIN_POST_EXTRACTION_ENABLED`: Enable date correction + detail preservation (default: false)
+- `HINDSIGHT_API_RETAIN_FACT_FORMAT_CLEAN_ENABLED`: Strip metadata suffixes from fact text (default: false)
+- `HINDSIGHT_API_RETAIN_MISSION`: Custom instructions for fact extraction (see ingest-locomo.sh for recommended LoCoMo mission)
