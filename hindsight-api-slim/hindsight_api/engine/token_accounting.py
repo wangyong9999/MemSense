@@ -26,7 +26,7 @@ def count_tokens(text: str) -> int:
     """Count tokens in a text string using cl100k_base encoding."""
     if not text:
         return 0
-    return len(_encoding.encode(text))
+    return len(_encoding.encode(text, disallowed_special=()))
 
 
 @dataclass
@@ -101,7 +101,7 @@ def measure_recall_tokens(result_dicts: list[dict]) -> RecallTokenStats:
     for r in result_dicts:
         text = r.get("text", "")
         if text:
-            total += len(_encoding.encode(text))
+            total += len(_encoding.encode(text, disallowed_special=()))
 
     return RecallTokenStats(
         context_tokens=total,

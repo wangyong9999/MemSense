@@ -192,6 +192,186 @@ class TestDateValidation:
         assert "July 14" not in fact.fact_text
 
 
+class TestDateValidationChunkConfidence:
+    """
+    Chunk-path confidence filter: when the relative expression comes only
+    from the chunk (not fact_text), attribution is uncertain. We only trust
+    corrections whose diff matches the ±1/±2 week miscount pattern the
+    feature was designed to catch — other magnitudes almost always mean the
+    expression in the chunk belongs to a different fact.
+    """
+
+    def test_chunk_path_diff_29_days_skipped(self):
+        """Regression: Aug 15 → Jul 17 (diff=29d). Chunk has 'yesterday' that
+        actually belongs to a different sentence/fact. Before fix: wrong
+        correction. After fix: skipped."""
+        from hindsight_api.engine.retain.post_extraction.date_validation import (
+            validate_and_correct_dates,
+        )
+
+        fact = FakeFact(
+            fact_text="User confirmed the travel plan on August 15, 2023",
+            occurred_start=datetime(2023, 8, 15, tzinfo=timezone.utc),
+            mentioned_at=datetime(2023, 7, 18, tzinfo=timezone.utc),
+            chunk_index=0,
+        )
+        # Chunk has "yesterday" referring to a different event; dateparser
+        # would resolve it to Jul 17 (diff=29d), which is unrelated to this fact.
+        chunk = FakeChunk(
+            chunk_text=("Yesterday I went hiking. By the way, we also confirmed the travel plan on August 15."),
+            chunk_index=0,
+        )
+
+        checked, corrected = validate_and_correct_dates([fact], [chunk])
+
+        # Should NOT correct — diff of 29 days is outside the weekly miscount pattern
+        assert corrected == 0
+        assert fact.occurred_start.month == 8
+        assert fact.occurred_start.day == 15
+
+    def test_chunk_path_diff_5_days_skipped(self):
+        """Regression: Jan 5 → Dec 31 (diff=5d). Chunk-sourced relative
+        expression with 5-day diff doesn't match the ±1-week pattern."""
+        from hindsight_api.engine.retain.post_extraction.date_validation import (
+            validate_and_correct_dates,
+        )
+
+        fact = FakeFact(
+            fact_text="Team finalized the budget on January 5, 2024",
+            occurred_start=datetime(2024, 1, 5, tzinfo=timezone.utc),
+            mentioned_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
+            chunk_index=0,
+        )
+        # "yesterday" in chunk resolves to Dec 31, 2023 (diff=5 from Jan 5) —
+        # unrelated to this fact.
+        chunk = FakeChunk(
+            chunk_text=("Yesterday I saw a movie. Unrelated — the team finalized the budget on January 5."),
+            chunk_index=0,
+        )
+
+        checked, corrected = validate_and_correct_dates([fact], [chunk])
+
+        assert corrected == 0
+        assert fact.occurred_start.month == 1
+        assert fact.occurred_start.day == 5
+
+    def test_chunk_path_diff_7_still_corrected(self):
+        """Sanity: the designed use case (diff=7, chunk-sourced expr) must
+        still correct. This is the backbone of the feature."""
+        from hindsight_api.engine.retain.post_extraction.date_validation import (
+            validate_and_correct_dates,
+        )
+
+        # conv-30 style: "last Friday" from July 23 → July 21, LLM wrote July 14
+        fact = FakeFact(
+            fact_text="Dance class on July 14, 2023 was inspiring",
+            occurred_start=datetime(2023, 7, 14, tzinfo=timezone.utc),
+            mentioned_at=datetime(2023, 7, 23, tzinfo=timezone.utc),
+            chunk_index=0,
+        )
+        chunk = FakeChunk(
+            chunk_text="Last Friday at dance class was amazing.",
+            chunk_index=0,
+        )
+
+        checked, corrected = validate_and_correct_dates([fact], [chunk])
+
+        assert corrected == 1
+        assert fact.occurred_start.day == 21
+
+    def test_chunk_path_diff_14_still_corrected(self):
+        """±2 week miscount (diff=14) is still in the plausible range."""
+        from hindsight_api.engine.retain.post_extraction.date_validation import (
+            validate_and_correct_dates,
+        )
+
+        # LLM wrote 2 weeks earlier than correct. Reference 2023-07-23,
+        # "last Friday" = 2023-07-21, LLM said 2023-07-07 (diff=14).
+        fact = FakeFact(
+            fact_text="Dance class on July 7, 2023 was inspiring",
+            occurred_start=datetime(2023, 7, 7, tzinfo=timezone.utc),
+            mentioned_at=datetime(2023, 7, 23, tzinfo=timezone.utc),
+            chunk_index=0,
+        )
+        chunk = FakeChunk(chunk_text="Last Friday at dance class was great.", chunk_index=0)
+
+        checked, corrected = validate_and_correct_dates([fact], [chunk])
+
+        assert corrected == 1
+        assert fact.occurred_start.day == 21
+
+    def test_fact_text_path_diff_14_still_corrected(self):
+        """Fact-text path (high confidence) is NOT subject to the chunk-path
+        diff filter, but is subject to the max-diff cap (21 days). A diff of
+        14 days is within that cap and should still correct."""
+        from hindsight_api.engine.retain.post_extraction.date_validation import (
+            validate_and_correct_dates,
+        )
+
+        # Relative expression is IN fact_text — high confidence.
+        # LLM writes "last Friday" + an absolute date 2 weeks early (diff=14).
+        fact = FakeFact(
+            fact_text="Meeting last Friday on July 7, 2023 went well",
+            occurred_start=datetime(2023, 7, 7, tzinfo=timezone.utc),
+            mentioned_at=datetime(2023, 7, 23, tzinfo=timezone.utc),
+            chunk_index=0,
+        )
+        chunk = FakeChunk(chunk_text="The meeting last Friday went well.", chunk_index=0)
+
+        checked, corrected = validate_and_correct_dates([fact], [chunk])
+
+        # diff=14 is within the 21-day max cap → correction applied
+        assert corrected == 1
+        assert fact.occurred_start.day == 21
+        assert fact.occurred_start.month == 7
+
+    def test_fact_text_path_extreme_diff_skipped(self):
+        """Fact-text path with extreme diff (e.g., 'last year' → 309d) is
+        skipped by the max-diff cap. This prevents nonsensical corrections."""
+        from hindsight_api.engine.retain.post_extraction.date_validation import (
+            validate_and_correct_dates,
+        )
+
+        # "last year" in fact_text, LLM wrote Jan 1, 2022. dateparser from
+        # Nov 2023 gives ~Nov 2022. diff ≈ 309 days → way beyond 21-day cap.
+        fact = FakeFact(
+            fact_text="Started learning piano last year on January 1, 2022",
+            occurred_start=datetime(2022, 1, 1, tzinfo=timezone.utc),
+            mentioned_at=datetime(2023, 11, 6, tzinfo=timezone.utc),
+            chunk_index=0,
+        )
+        chunk = FakeChunk(chunk_text="I started learning piano last year.", chunk_index=0)
+
+        checked, corrected = validate_and_correct_dates([fact], [chunk])
+
+        # diff ≈ 309 days exceeds the 21-day max → skipped
+        assert corrected == 0
+        assert fact.occurred_start.year == 2022
+        assert fact.occurred_start.month == 1
+
+    def test_plausible_weekly_miscount_helper(self):
+        """Unit-test the predicate directly for boundary coverage."""
+        from hindsight_api.engine.retain.post_extraction.date_validation import (
+            _is_plausible_weekly_miscount,
+        )
+
+        # ±1 week band
+        assert _is_plausible_weekly_miscount(6)
+        assert _is_plausible_weekly_miscount(7)
+        assert _is_plausible_weekly_miscount(8)
+        # ±2 week band
+        assert _is_plausible_weekly_miscount(13)
+        assert _is_plausible_weekly_miscount(14)
+        assert _is_plausible_weekly_miscount(15)
+        # Outside — the diffs of the three regressions (29, 29, 5)
+        assert not _is_plausible_weekly_miscount(5)
+        assert not _is_plausible_weekly_miscount(29)
+        # Gap between bands and far out
+        assert not _is_plausible_weekly_miscount(10)
+        assert not _is_plausible_weekly_miscount(3)
+        assert not _is_plausible_weekly_miscount(40)
+
+
 # ===================================================================
 # Detail preservation tests
 # ===================================================================
@@ -250,7 +430,7 @@ class TestDetailPreservation:
         fact_lower = fact.fact_text.lower()
         # At least some game titles should be restored
         assert enriched >= 1
-        has_any_title = "zelda" in fact_lower or "animal crossing" in fact_lower or "overcooked" in fact_lower
+        has_any_title = "zelda" in fact_lower or "animal crossing" in fact_lower
         assert has_any_title
 
     def test_no_false_enrichment(self):
@@ -276,7 +456,7 @@ class TestDetailPreservation:
         assert enriched == 0
 
     def test_place_name_restored(self):
-        """Place names like 'Talkeetna' should be preserved when fact uses generic 'place'."""
+        """Place names like 'Bali' should be preserved when fact uses generic 'place'."""
         from hindsight_api.engine.retain.post_extraction.detail_preservation import (
             preserve_details,
         )
@@ -287,14 +467,14 @@ class TestDetailPreservation:
             chunk_index=0,
         )
         chunk = FakeChunk(
-            chunk_text="Here's how I spent yesterday morning, yoga on top of mount Talkeetna. Jolene loves it.",
+            chunk_text="Here's how I spent yesterday morning, yoga retreat in Bali. Jolene loves it.",
             chunk_index=0,
         )
 
         checked, enriched = preserve_details([fact], [chunk])
 
         assert enriched >= 1
-        assert "Talkeetna" in fact.fact_text
+        assert "Bali" in fact.fact_text
 
     def test_json_dialogue_chunk(self):
         """Chunks in LoCoMo JSON dialogue format should be parsed correctly."""
@@ -516,25 +696,24 @@ class TestLoCoMoDetailRegressions:
         _, enriched = preserve_details([fact], [chunk])
         assert enriched >= 1
         fact_lower = fact.fact_text.lower()
-        assert "zelda" in fact_lower or "animal crossing" in fact_lower or "overcooked" in fact_lower
+        assert "zelda" in fact_lower or "animal crossing" in fact_lower
 
-    def test_conv48_talkeetna_place_lost(self):
-        """conv-48: 'Talkeetna' not extracted.
-        Q: When did Jolene do yoga at Talkeetna? Gold: June 5, 2023."""
+    def test_place_name_phuket_restored(self):
+        """Place name 'Phuket' should be preserved when fact uses generic 'location'."""
         from hindsight_api.engine.retain.post_extraction.detail_preservation import preserve_details
 
         fact = FakeFact(
-            fact_text="Jolene practiced yoga at a beautiful mountain location | Involving: Jolene",
+            fact_text="Jolene practiced yoga at a beautiful retreat location | Involving: Jolene",
             entities=["Jolene"],
             chunk_index=0,
         )
         chunk = FakeChunk(
-            chunk_text="Here's an example of how I spent yesterday morning, yoga on top of mount Talkeetna. Jolene loves mountains.",
+            chunk_text="Jolene spent a week doing yoga in Phuket. The retreat was amazing.",
             chunk_index=0,
         )
         _, enriched = preserve_details([fact], [chunk])
         assert enriched >= 1
-        assert "talkeetna" in fact.fact_text.lower()
+        assert "phuket" in fact.fact_text.lower()
 
     def test_conv42_xenoblade_game_title(self):
         """conv-42: 'Xenoblade Chronicles' not in fact.

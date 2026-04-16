@@ -153,7 +153,7 @@ async def ingest_locomo(max_items: int | None, wait_consolidation: bool, force_i
         await memory.close()
 
 
-async def ingest_longmemeval(max_items: int | None, wait_consolidation: bool, force_item: str | None = None):
+async def ingest_longmemeval(max_items: int | None, wait_consolidation: bool, force_item: str | None = None, reverse: bool = False, shard: tuple[int, int] | None = None):
     """Ingest LongMemEval questions into separate banks."""
     from benchmarks.common.benchmark_runner import create_memory_engine
     from benchmarks.longmemeval.longmemeval_benchmark import LongMemEvalDataset
@@ -163,7 +163,13 @@ async def ingest_longmemeval(max_items: int | None, wait_consolidation: bool, fo
         dataset = LongMemEvalDataset()
         dataset_path = Path(__file__).parent.parent.parent / "hindsight-dev" / "benchmarks" / "longmemeval" / "datasets" / "longmemeval_s_cleaned.json"
         items = dataset.load(dataset_path, max_items)
-        print(f"Loaded {len(items)} questions from {dataset_path}")
+        if reverse:
+            items = list(reversed(items))
+        if shard is not None:
+            shard_idx, shard_total = shard
+            items = [item for i, item in enumerate(items) if i % shard_total == shard_idx]
+        shard_label = f" shard={shard[0]}/{shard[1]}" if shard else ""
+        print(f"Loaded {len(items)} questions from {dataset_path} (reverse={reverse}{shard_label})")
 
         from hindsight_api.models import RequestContext
 
@@ -238,6 +244,10 @@ def main():
                         help="Force re-ingest a specific item (e.g., conv-41). Clears its bank first.")
     parser.add_argument("--wait-consolidation", action="store_true",
                         help="Wait for observation consolidation after each item")
+    parser.add_argument("--reverse", action="store_true",
+                        help="Iterate items in reverse order (use to parallelize 2 workers)")
+    parser.add_argument("--shard", type=str, default=None,
+                        help="Shard partition K/N: this worker handles items where index %% N == K (e.g., --shard 0/5)")
     args = parser.parse_args()
 
     if args.list_banks:
@@ -247,10 +257,15 @@ def main():
     if not args.benchmark:
         parser.error("benchmark is required (locomo or longmemeval)")
 
+    shard = None
+    if args.shard:
+        k, n = args.shard.split("/")
+        shard = (int(k), int(n))
+
     if args.benchmark == "locomo":
         asyncio.run(ingest_locomo(args.max_items, args.wait_consolidation, force_item=args.force))
     else:
-        asyncio.run(ingest_longmemeval(args.max_items, args.wait_consolidation, force_item=args.force))
+        asyncio.run(ingest_longmemeval(args.max_items, args.wait_consolidation, force_item=args.force, reverse=args.reverse, shard=shard))
 
 
 if __name__ == "__main__":

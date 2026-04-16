@@ -37,6 +37,29 @@ _RELATIVE_PATTERNS = re.compile(
 # Pattern to find "(YYYY-MM-DD" or "YYYY-MM-DD)" or standalone ISO dates in fact text
 _ISO_DATE_IN_TEXT = re.compile(r"\b(\d{4}-\d{2}-\d{2})\b")
 
+# When the relative expression is sourced from the chunk (not fact_text),
+# attribution is not guaranteed — chunks often contain multiple unrelated
+# temporal references. To avoid mis-correcting, we only accept chunk-sourced
+# corrections whose diff matches the ±1 or ±2 week miscount pattern this
+# feature was designed to catch (see module docstring). Other magnitudes
+# almost always indicate the relative expression belongs to a different fact.
+_CHUNK_PATH_PLAUSIBLE_DIFF_RANGES: tuple[tuple[int, int], ...] = (
+    (6, 8),  # ±1 week miscount (most common)
+    (13, 15),  # ±2 week miscount
+)
+
+# Maximum diff (days) for the fact-text path. The expression is definitely
+# attributed to this fact, but extreme diffs (e.g., "last year" → 309d)
+# indicate the expression is not a weekly miscount — the feature's designed
+# scope. 21 days (3 weeks) is generous for any realistic weekly error.
+_FACT_TEXT_MAX_DIFF_DAYS = 21
+
+
+def _is_plausible_weekly_miscount(diff_days: int) -> bool:
+    """Return True if diff matches the ±1/±2 week miscount pattern."""
+    return any(lo <= diff_days <= hi for lo, hi in _CHUNK_PATH_PLAUSIBLE_DIFF_RANGES)
+
+
 # Pattern to find "Month DD, YYYY" or "DD Month YYYY" in fact text
 _READABLE_DATE_IN_TEXT = re.compile(
     r"\b("
@@ -157,11 +180,16 @@ def validate_and_correct_dates(
         chunk = chunk_by_index.get(fact.chunk_index)
         chunk_text = chunk.chunk_text if chunk else ""
 
-        # Look for relative temporal expression in BOTH fact text and chunk text
-        # (the expression might be in the original dialogue but not in the extracted fact)
+        # Look for relative temporal expression in fact_text first (high-confidence
+        # path: the expression belongs to this fact). Fall back to chunk text only
+        # when fact_text has none — this is lower confidence because chunks often
+        # contain multiple temporal references belonging to different facts.
         relative_expr = _find_relative_expression(fact.fact_text)
+        source = "fact" if relative_expr else None
         if not relative_expr and chunk_text:
             relative_expr = _find_relative_expression(chunk_text)
+            if relative_expr:
+                source = "chunk"
 
         if not relative_expr:
             continue
@@ -177,6 +205,35 @@ def validate_and_correct_dates(
         diff_days = abs((computed_date - fact.occurred_start.replace(tzinfo=timezone.utc)).days)
 
         if diff_days > tolerance_days:
+            # Chunk-path correction needs additional confidence check:
+            # attribution is not guaranteed, so only accept diffs that match
+            # the ±1/±2 week miscount pattern the feature was designed for.
+            if source == "chunk" and not _is_plausible_weekly_miscount(diff_days):
+                logger.debug(
+                    "Skipping chunk-path date correction: diff=%dd outside "
+                    "weekly miscount pattern (expr='%s', fact_date=%s, computed=%s)",
+                    diff_days,
+                    relative_expr,
+                    fact.occurred_start.strftime("%Y-%m-%d"),
+                    computed_date.strftime("%Y-%m-%d"),
+                )
+                continue
+
+            # Fact-text path: attribution is certain but extreme diffs
+            # (e.g., "last year" → 309d) are outside the weekly miscount
+            # scope this feature targets. Cap at _FACT_TEXT_MAX_DIFF_DAYS.
+            if source == "fact" and diff_days > _FACT_TEXT_MAX_DIFF_DAYS:
+                logger.debug(
+                    "Skipping fact-text date correction: diff=%dd exceeds "
+                    "max %dd (expr='%s', fact_date=%s, computed=%s)",
+                    diff_days,
+                    _FACT_TEXT_MAX_DIFF_DAYS,
+                    relative_expr,
+                    fact.occurred_start.strftime("%Y-%m-%d"),
+                    computed_date.strftime("%Y-%m-%d"),
+                )
+                continue
+
             old_date = fact.occurred_start
             new_date = computed_date
 

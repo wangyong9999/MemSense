@@ -22,9 +22,14 @@ import re
 
 logger = logging.getLogger(__name__)
 
-# Generic category terms and their more-specific alternatives that might appear in source text.
-# If a fact uses one of these generics AND the chunk has a more specific term nearby,
-# we restore the specific term.
+# Generic category terms and their more-specific alternatives that might appear
+# in source text.  If a fact uses one of these generics AND the chunk has a more
+# specific term nearby, we restore the specific term.
+#
+# IMPORTANT: Only include widely-known common English terms here. Do NOT add
+# benchmark-specific proper nouns (character names, obscure place names, pet
+# names from test conversations). This dictionary must generalise to arbitrary
+# user conversations — adding benchmark-derived terms is overfitting.
 _GENERIC_CATEGORIES: dict[str, list[str]] = {
     "clothing": [
         "hoodie",
@@ -47,15 +52,11 @@ _GENERIC_CATEGORIES: dict[str, list[str]] = {
         "minecraft",
         "fortnite",
         "overwatch",
-        "overcooked",
         "animal crossing",
         "pokemon",
-        "botw",
-        "detroit",
     ],
-    "book": ["harry potter", "lord of the rings", "lotr", "dance with dragons", "nothing is impossible"],
+    "book": ["harry potter", "lord of the rings"],
     "food": [
-        "chicken pot pie",
         "pizza",
         "pasta",
         "sushi",
@@ -67,12 +68,11 @@ _GENERIC_CATEGORIES: dict[str, list[str]] = {
         "croissant",
         "tart",
     ],
-    "recipe": ["chicken pot pie", "roasted chicken", "mediterranean", "garlic chicken"],
+    "recipe": ["roasted chicken", "mediterranean"],
     "drink": ["coffee", "latte", "espresso", "smoothie", "tea"],
-    "place": ["talkeetna", "phuket", "bali", "alaska", "indiana", "minnesota", "san francisco"],
-    "animal": ["pepper", "precious", "panda", "pixie", "seraphim", "toby", "susie"],
-    "sport": ["surfing", "yoga", "basketball", "boxing", "hiking", "birdwatching"],
-    "music": ["monster hunter", "beethoven", "bach"],
+    "place": ["phuket", "bali", "alaska", "san francisco"],
+    "sport": ["surfing", "yoga", "basketball", "boxing", "hiking"],
+    "music": ["beethoven", "bach", "mozart", "chopin"],
 }
 
 # Flatten for quick lookup: specific_term → category

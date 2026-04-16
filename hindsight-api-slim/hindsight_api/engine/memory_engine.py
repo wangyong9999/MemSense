@@ -55,7 +55,7 @@ def get_current_schema() -> str:
 
 def count_tokens(text: str) -> int:
     """Count tokens in text using tiktoken (cl100k_base encoding for GPT-4/3.5)."""
-    return len(_get_tiktoken_encoding().encode(text))
+    return len(_get_tiktoken_encoding().encode(text, disallowed_special=()))
 
 
 def fq_table(table_name: str) -> str:
