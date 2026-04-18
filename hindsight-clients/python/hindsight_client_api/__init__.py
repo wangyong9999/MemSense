@@ -14,7 +14,7 @@
 """  # noqa: E501
 
 
-__version__ = "0.0.7"
+__version__ = "0.5.4"
 
 # import apis into sdk package
 from hindsight_client_api.api.audit_api import AuditApi
