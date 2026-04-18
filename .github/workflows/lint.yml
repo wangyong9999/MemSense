@@ -1,8 +1,5 @@
 name: Lint
 
-# Lint gate — the same checks pre-commit hooks run locally (scripts/hooks/lint.sh),
-# enforced in CI so drift cannot merge. Runs on every PR; additive to test.yml.
-
 on:
   pull_request:
   workflow_dispatch:

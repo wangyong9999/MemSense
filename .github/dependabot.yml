@@ -1,15 +1,7 @@
 version: 2
 
-# Dependabot coverage matrix.
-# - Weekly schedule to cap PR noise in a monorepo.
-# - Patch + minor updates grouped per ecosystem; majors remain individual
-#   so they get explicit review attention.
-# - open-pull-requests-limit caps backpressure per ecosystem.
-
 updates:
-  # -----------------------------------------------------------------------
   # GitHub Actions
-  # -----------------------------------------------------------------------
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
@@ -20,9 +12,7 @@ updates:
           - "minor"
           - "patch"
 
-  # -----------------------------------------------------------------------
-  # Python — main packages (each tracks its own dependency closure)
-  # -----------------------------------------------------------------------
+  # Python — main packages
   - package-ecosystem: "pip"
     directory: "/hindsight-api-slim"
     schedule:
@@ -86,9 +76,7 @@ updates:
       python-dev-minor-patch:
         update-types: ["minor", "patch"]
 
-  # -----------------------------------------------------------------------
-  # Python — integrations (same cadence, grouped heavily to cap noise)
-  # -----------------------------------------------------------------------
+  # Python integrations
   - package-ecosystem: "pip"
     directory: "/hindsight-integrations/litellm"
     schedule:
@@ -179,9 +167,7 @@ updates:
       integrations-minor-patch:
         update-types: ["minor", "patch"]
 
-  # -----------------------------------------------------------------------
-  # npm — root workspace (covers typescript client, control-plane, docs)
-  # -----------------------------------------------------------------------
+  # npm root workspace
   - package-ecosystem: "npm"
     directory: "/"
     schedule:
@@ -191,9 +177,7 @@ updates:
       npm-workspace-minor-patch:
         update-types: ["minor", "patch"]
 
-  # -----------------------------------------------------------------------
-  # npm — integrations with independent package-locks
-  # -----------------------------------------------------------------------
+  # npm integrations
   - package-ecosystem: "npm"
     directory: "/hindsight-integrations/ai-sdk"
     schedule:
@@ -239,9 +223,7 @@ updates:
       ts-integrations-minor-patch:
         update-types: ["minor", "patch"]
 
-  # -----------------------------------------------------------------------
   # Rust
-  # -----------------------------------------------------------------------
   - package-ecosystem: "cargo"
     directory: "/hindsight-cli"
     schedule:
@@ -260,9 +242,7 @@ updates:
       cargo-client-minor-patch:
         update-types: ["minor", "patch"]
 
-  # -----------------------------------------------------------------------
-  # Docker base images (ship target)
-  # -----------------------------------------------------------------------
+  # Docker base images
   - package-ecosystem: "docker"
     directory: "/docker/standalone"
     schedule:

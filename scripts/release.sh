@@ -62,9 +62,7 @@ if git rev-parse "v$VERSION" >/dev/null 2>&1; then
     exit 1
 fi
 
-# Verify the docs changelog has an entry for this version. The entry format
-# is "## [X.Y.Z](..." in hindsight-docs/src/pages/changelog/index.md — the
-# root CHANGELOG.md is only a pointer.
+# Require a docs changelog section for this version.
 CHANGELOG_FILE="hindsight-docs/src/pages/changelog/index.md"
 if [ -f "$CHANGELOG_FILE" ]; then
     if ! grep -qE "^## \\[${VERSION}\\]" "$CHANGELOG_FILE"; then

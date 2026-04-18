@@ -265,7 +265,7 @@ jobs:
     permissions:
       contents: read
       packages: write
-      id-token: write # for cosign keyless OIDC signing
+      id-token: write
     strategy:
       matrix:
         include:
@@ -374,9 +374,6 @@ jobs:
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
 
-    # Supply-chain hardening (additive — failures here do not block the push,
-    # but scan output and signatures are attached to the release).
-
     - name: Install cosign
       uses: sigstore/cosign-installer@v3
 
@@ -416,7 +413,7 @@ jobs:
         format: table
         severity: HIGH,CRITICAL
         ignore-unfixed: true
-        exit-code: 0 # warn-only; flip to 1 in a later release once baseline is stable
+        exit-code: 0
 
   release-helm-chart:
     runs-on: ubuntu-latest

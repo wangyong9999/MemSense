@@ -500,10 +500,7 @@ class TestDetailPreservation:
         assert "hoodie" in fact.fact_text.lower()
 
     def test_no_false_positive_on_common_substrings(self):
-        """Regression: chunks with 'that'/'what'/'chat' must not trigger
-        'hat' enrichment. Prior substring bug produced 317/404 garbage
-        '(specifically: Hat)' suffixes on GLM-5 LoCoMo ingest.
-        """
+        """Regression: 'that'/'what'/'chat' must not trigger 'hat' enrichment."""
         from hindsight_api.engine.retain.post_extraction.detail_preservation import (
             preserve_details,
         )
@@ -830,14 +827,7 @@ class TestLoCoMoDetailRegressions:
 
 
 class TestFactFormatClean:
-    """Tests for selective pipe-delimited metadata stripping.
-
-    Semantics (as of 2026-04-18): only ` | When: ...` segments are stripped,
-    because `occurred_start` / `occurred_end` carry the same information to
-    the answer LLM. `| Involving:` is preserved — it is the only per-fact
-    actor attribution visible to the answer LLM. `| Where:` is preserved
-    pending dedicated location-field evaluation.
-    """
+    """Tests for ``| When:`` segment stripping. Involving: and Where: are preserved."""
 
     def test_strips_when_keeps_involving(self):
         """When: segment removed, Involving: segment preserved."""
@@ -946,12 +936,11 @@ class TestFactFormatClean:
 
 
 class TestFactFormatCleanRegression:
-    """Regression tests anchored to historical behaviour."""
+    """Regression tests."""
 
     def test_cat1_multihop_attribution_preserved(self):
-        """GLM-5 Cat1 -1.42pp regression was caused by stripping | Involving:.
-        This test pins the fix: after cleaning, actor attribution must remain
-        in fact_text so the answer LLM can chain facts across sessions.
+        """Actor attribution (Involving:) must survive cleaning so multi-hop questions
+        can still chain facts across sessions.
         """
         from hindsight_api.engine.retain.post_extraction.fact_format import clean_fact_format
 
@@ -960,9 +949,7 @@ class TestFactFormatCleanRegression:
             entities=["Jolene", "Partner"],
         )
         clean_fact_format([fact])
-        # The multi-hop-critical attribution survives
         assert "Involving: Jolene, Partner" in fact.fact_text
-        # But the redundant When: is gone (duplicate with occurred_start)
         assert "When:" not in fact.fact_text
 
     def test_enrichment_integration_with_format_flag(self):

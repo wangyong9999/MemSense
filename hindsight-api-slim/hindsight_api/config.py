@@ -480,11 +480,7 @@ DEFAULT_RETAIN_EXTRACT_CAUSAL_LINKS = True  # Extract causal links between facts
 DEFAULT_RETAIN_EXTRACTION_MODE = "concise"  # Extraction mode: "concise", "verbose", or "custom"
 RETAIN_EXTRACTION_MODES = ("concise", "verbose", "custom", "verbatim", "chunks")  # Allowed extraction modes
 DEFAULT_RETAIN_MISSION = None  # Declarative spec of what to retain (injected into any extraction mode).
-# NOTE: write missions for your own domain. The example mission in
-# scripts/benchmarks/ingest-locomo.sh is reverse-engineered from LoCoMo error
-# analysis (mentions hoodie, Zelda BOTW, Talkeetna, asthma, etc.) and is only
-# appropriate for running that benchmark. Copying it verbatim for production
-# use is benchmark-overfitting and will not generalise.
+# Missions should be domain-specific; the example in ingest-locomo.sh is for benchmarking only.
 DEFAULT_RETAIN_CUSTOM_INSTRUCTIONS = None  # Custom extraction guidelines (only used when mode="custom")
 DEFAULT_RETAIN_DEFAULT_STRATEGY = None  # Default strategy name (None = no strategy override)
 DEFAULT_RETAIN_STRATEGIES: dict | None = None  # Named retain strategies (dict of name → config overrides)

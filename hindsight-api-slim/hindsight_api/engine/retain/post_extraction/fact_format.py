@@ -1,30 +1,10 @@
-"""
-Post-extraction fact text format cleaning.
+"""Strip the redundant ``| When:`` segment from fact text.
 
-Strips only the `| When: ...` segment from fact text. The `When:` value is
-fully duplicated by the structured `occurred_start` / `occurred_end` fields
-which are serialized alongside the fact text to the answer LLM, so removing
-the inline pipe segment has zero information loss.
+``| When:`` duplicates ``occurred_start`` / ``occurred_end`` in the
+serialized response, so stripping it saves tokens without losing info.
+``| Involving:`` and ``| Where:`` are preserved.
 
-The `| Involving: ...` segment is KEPT because it is the only per-fact
-actor attribution available to the answer LLM — the top-level `entities`
-dict in the recall response is aggregated across all results and does not
-preserve which entities belong to which fact.
-
-`| Where: ...` is also kept because there is no dedicated location field
-to duplicate it (would require a separate evaluation before removal).
-
-Empirical basis:
-  - MiniMax M2.7 conv-42/43 ablation: original all-strip was +3 on conv-43
-    but also coincided with regressions elsewhere.
-  - GLM-5 full 10-conv run (2026-04-17): original all-strip showed Cat1
-    Multi-hop -1.42pp because per-fact `| Involving:` attribution was lost.
-  - `occurred_start` is already in the JSON payload sent to the answer LLM
-    (see `ScoredResult.to_dict` and `locomo_benchmark.generate_answer`),
-    making `| When:` inline text strictly redundant.
-
-Controlled by independent feature flag:
-  HINDSIGHT_API_RETAIN_FACT_FORMAT_CLEAN_ENABLED (default: false)
+Flag: ``HINDSIGHT_API_RETAIN_FACT_FORMAT_CLEAN_ENABLED`` (default off).
 """
 
 from __future__ import annotations
@@ -34,13 +14,8 @@ import re
 
 logger = logging.getLogger(__name__)
 
-# Match a ` | When: <content>` segment and its LEADING separator, leaving
-# the trailing separator (and its preceding whitespace) to the next segment.
-# Lazy match + lookahead ensures we stop at either the space-before-next-pipe
-# or end-of-string, so middle segments don't collapse surrounding spaces.
-#
-# Example: "X | When: Y, Z | Involving: Q" → match " | When: Y, Z"
-#                                            → result "X | Involving: Q"
+# Match " | When: ..." eating its leading separator only.
+# Lazy + lookahead so middle segments don't collapse spaces around the next pipe.
 _WHEN_SEGMENT_RE = re.compile(
     r"\s*\|\s*When:[^|]*?(?=\s+\||\s*$)",
     re.IGNORECASE,
@@ -50,17 +25,7 @@ _WHEN_SEGMENT_RE = re.compile(
 def clean_fact_format(
     facts: list,
 ) -> tuple[int, int]:
-    """Strip only the `| When:` segment from fact text.
-
-    `| Involving:` and `| Where:` segments are preserved; see module
-    docstring for the rationale.
-
-    Args:
-        facts: List of ExtractedFact objects (mutated in-place).
-
-    Returns:
-        Tuple of (checked_count, cleaned_count).
-    """
+    """Strip ``| When:`` from each fact's text. Returns ``(checked, cleaned)``."""
     checked = 0
     cleaned = 0
 
