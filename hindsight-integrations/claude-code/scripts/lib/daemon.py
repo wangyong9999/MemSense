@@ -1,6 +1,6 @@
 """Hindsight-embed daemon lifecycle management.
 
-Port of: HindsightEmbedManager in embed-manager.js, adapted for Python
+Port of: HindsightServer in @vectorize-io/hindsight-all, adapted for Python
 subprocess calls from ephemeral hook processes.
 
 Manages three connection modes (same as Openclaw):
@@ -20,6 +20,7 @@ import time
 import urllib.error
 import urllib.request
 
+from .client import USER_AGENT
 from .llm import detect_llm_config, get_llm_env_vars
 from .state import read_state, write_state
 
@@ -30,7 +31,7 @@ PROFILE_NAME = "claude-code"
 def _get_embed_command(config: dict) -> list:
     """Get the command to run hindsight-embed.
 
-    Port of: getEmbedCommand() in embed-manager.js
+    Port of: getEmbedCommand() in @vectorize-io/hindsight-all
     """
     embed_path = config.get("embedPackagePath")
     if embed_path:
@@ -74,7 +75,7 @@ def _check_health(base_url: str, timeout: int = 2) -> bool:
     """Quick health check against a Hindsight server."""
     try:
         url = f"{base_url.rstrip('/')}/health"
-        req = urllib.request.Request(url, method="GET")
+        req = urllib.request.Request(url, method="GET", headers={"User-Agent": USER_AGENT})
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return resp.status == 200
     except Exception:
@@ -139,7 +140,7 @@ def get_api_url(config: dict, debug_fn=None, allow_daemon_start: bool = False) -
 def _ensure_daemon_running(config: dict, port: int, debug_fn=None):
     """Start the hindsight-embed daemon if not already running.
 
-    Port of: HindsightEmbedManager.start() in embed-manager.js
+    Port of: HindsightServer.start() in @vectorize-io/hindsight-all
     """
     # Fast-fail if hindsight-embed toolchain is not available
     if not _is_embed_available(config):

@@ -8,10 +8,18 @@ easy-to-use interface on top of the auto-generated OpenAPI client.
 import asyncio
 import json
 from datetime import datetime
+from importlib import metadata
 from pathlib import Path
 from typing import Any, Literal
 
 import hindsight_client_api
+
+try:
+    _CLIENT_VERSION = metadata.version("hindsight-client")
+except metadata.PackageNotFoundError:
+    _CLIENT_VERSION = "0.0.0"
+
+DEFAULT_USER_AGENT = f"hindsight-client-python/{_CLIENT_VERSION}"
 from hindsight_client_api.api import (
     banks_api,
     directives_api,
@@ -119,7 +127,13 @@ class Hindsight:
         - ``client.monitoring``: Health/version checks (MonitoringApi)
     """
 
-    def __init__(self, base_url: str, api_key: str | None = None, timeout: float = 300.0):
+    def __init__(
+        self,
+        base_url: str,
+        api_key: str | None = None,
+        timeout: float = 300.0,
+        user_agent: str | None = None,
+    ):
         """
         Initialize the Hindsight client.
 
@@ -127,9 +141,14 @@ class Hindsight:
             base_url: The base URL of the Hindsight API server
             api_key: Optional API key for authentication (sent as Bearer token)
             timeout: Request timeout in seconds (default: 300.0)
+            user_agent: Override the default ``User-Agent`` header. Integrations
+                should set this to identify themselves (e.g.
+                ``"hindsight-crewai/1.2.0"``). Defaults to
+                ``hindsight-client-python/<version>``.
         """
         config = hindsight_client_api.Configuration(host=base_url, access_token=api_key)
         self._api_client = hindsight_client_api.ApiClient(config)
+        self._api_client.user_agent = user_agent or DEFAULT_USER_AGENT
         self._timeout = timeout
         self._base_url = base_url.rstrip("/")
         self._api_key = api_key
@@ -238,6 +257,7 @@ class Hindsight:
         metadata: dict[str, str] | None = None,
         entities: list[dict[str, str]] | None = None,
         tags: list[str] | None = None,
+        update_mode: str | None = None,
     ) -> RetainResponse:
         """
         Store a single memory (sync wrapper — prefer :meth:`aretain` in async code).
@@ -251,22 +271,24 @@ class Hindsight:
             metadata: Optional user-defined metadata
             entities: Optional list of entities [{"text": "...", "type": "..."}]
             tags: Optional list of tags for filtering memories during recall/reflect
+            update_mode: How to handle existing documents ('replace' or 'append')
 
         Returns:
             RetainResponse with success status
         """
+        item: dict[str, Any] = {
+            "content": content,
+            "timestamp": timestamp,
+            "context": context,
+            "metadata": metadata,
+            "entities": entities,
+            "tags": tags,
+        }
+        if update_mode is not None:
+            item["update_mode"] = update_mode
         return self.retain_batch(
             bank_id=bank_id,
-            items=[
-                {
-                    "content": content,
-                    "timestamp": timestamp,
-                    "context": context,
-                    "metadata": metadata,
-                    "entities": entities,
-                    "tags": tags,
-                }
-            ],
+            items=[item],
             document_id=document_id,
         )
 
@@ -727,6 +749,7 @@ class Hindsight:
                     tags=item.get("tags"),
                     observation_scopes=obs_scopes,
                     strategy=item.get("strategy"),
+                    update_mode=item.get("update_mode"),
                 )
             )
 
@@ -748,6 +771,7 @@ class Hindsight:
         metadata: dict[str, str] | None = None,
         entities: list[dict[str, str]] | None = None,
         tags: list[str] | None = None,
+        update_mode: str | None = None,
     ) -> RetainResponse:
         """
         Store a single memory (async — preferred over :meth:`retain`).
@@ -761,22 +785,24 @@ class Hindsight:
             metadata: Optional user-defined metadata
             entities: Optional list of entities [{"text": "...", "type": "..."}]
             tags: Optional list of tags for filtering memories during recall/reflect
+            update_mode: How to handle existing documents ('replace' or 'append')
 
         Returns:
             RetainResponse with success status
         """
+        item: dict[str, Any] = {
+            "content": content,
+            "timestamp": timestamp,
+            "context": context,
+            "metadata": metadata,
+            "entities": entities,
+            "tags": tags,
+        }
+        if update_mode is not None:
+            item["update_mode"] = update_mode
         return await self.aretain_batch(
             bank_id=bank_id,
-            items=[
-                {
-                    "content": content,
-                    "timestamp": timestamp,
-                    "context": context,
-                    "metadata": metadata,
-                    "entities": entities,
-                    "tags": tags,
-                }
-            ],
+            items=[item],
             document_id=document_id,
         )
 

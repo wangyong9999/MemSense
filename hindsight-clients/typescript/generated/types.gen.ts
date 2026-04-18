@@ -366,6 +366,14 @@ export type BankStatsResponse = {
    */
   failed_operations: number;
   /**
+   * Operations By Status
+   *
+   * Async operations grouped by status (pending, in_progress, completed, failed, cancelled).
+   */
+  operations_by_status?: {
+    [key: string]: number;
+  };
+  /**
    * Last Consolidated At
    *
    * When consolidation last ran (ISO format)
@@ -377,6 +385,12 @@ export type BankStatsResponse = {
    * Number of memories not yet processed into observations
    */
   pending_consolidation?: number;
+  /**
+   * Failed Consolidation
+   *
+   * Number of source memories (world/experience) whose consolidation permanently failed and can be retried via the consolidation recovery endpoint.
+   */
+  failed_consolidation?: number;
   /**
    * Total Observations
    *
@@ -459,13 +473,131 @@ export type BankTemplateConfig = {
    *
    * Controlled vocabulary for entity labels
    */
-  entity_labels?: Array<string> | null;
+  entity_labels?: Array<{
+    [key: string]: unknown;
+  }> | null;
   /**
    * Entities Allow Free Form
    *
    * Allow entities outside the label vocabulary
    */
   entities_allow_free_form?: boolean | null;
+  /**
+   * Retain Default Strategy
+   *
+   * Name of the default retain strategy (key into retain_strategies map)
+   */
+  retain_default_strategy?: string | null;
+  /**
+   * Retain Strategies
+   *
+   * Map of retain strategy name to per-strategy config dict
+   */
+  retain_strategies?: {
+    [key: string]: unknown;
+  } | null;
+  /**
+   * Retain Chunk Batch Size
+   *
+   * Max chunks per streaming batch (0 disables batching)
+   */
+  retain_chunk_batch_size?: number | null;
+  /**
+   * Mcp Enabled Tools
+   *
+   * MCP tool allowlist for this bank (None = all tools)
+   */
+  mcp_enabled_tools?: Array<string> | null;
+  /**
+   * Consolidation Llm Batch Size
+   *
+   * LLM batch size for observation consolidation
+   */
+  consolidation_llm_batch_size?: number | null;
+  /**
+   * Consolidation Source Facts Max Tokens
+   *
+   * Max tokens of source facts per consolidation batch
+   */
+  consolidation_source_facts_max_tokens?: number | null;
+  /**
+   * Consolidation Source Facts Max Tokens Per Observation
+   *
+   * Max tokens of source facts per observation
+   */
+  consolidation_source_facts_max_tokens_per_observation?: number | null;
+  /**
+   * Max Observations Per Scope
+   *
+   * Max observations to retain per consolidation scope
+   */
+  max_observations_per_scope?: number | null;
+  /**
+   * Reflect Source Facts Max Tokens
+   *
+   * Max tokens of source facts per reflect call
+   */
+  reflect_source_facts_max_tokens?: number | null;
+  /**
+   * Llm Gemini Safety Settings
+   *
+   * Per-bank Gemini/VertexAI safety filter settings
+   */
+  llm_gemini_safety_settings?: Array<unknown> | null;
+  /**
+   * Recall Budget Function
+   *
+   * Recall budget mapping function: 'fixed' or 'adaptive'
+   */
+  recall_budget_function?: string | null;
+  /**
+   * Recall Budget Fixed Low
+   *
+   * Fixed thinking_budget for budget=low (function='fixed')
+   */
+  recall_budget_fixed_low?: number | null;
+  /**
+   * Recall Budget Fixed Mid
+   *
+   * Fixed thinking_budget for budget=mid (function='fixed')
+   */
+  recall_budget_fixed_mid?: number | null;
+  /**
+   * Recall Budget Fixed High
+   *
+   * Fixed thinking_budget for budget=high (function='fixed')
+   */
+  recall_budget_fixed_high?: number | null;
+  /**
+   * Recall Budget Adaptive Low
+   *
+   * Ratio of max_tokens for budget=low (function='adaptive')
+   */
+  recall_budget_adaptive_low?: number | null;
+  /**
+   * Recall Budget Adaptive Mid
+   *
+   * Ratio of max_tokens for budget=mid (function='adaptive')
+   */
+  recall_budget_adaptive_mid?: number | null;
+  /**
+   * Recall Budget Adaptive High
+   *
+   * Ratio of max_tokens for budget=high (function='adaptive')
+   */
+  recall_budget_adaptive_high?: number | null;
+  /**
+   * Recall Budget Min
+   *
+   * Floor for the adaptive function (after clamping)
+   */
+  recall_budget_min?: number | null;
+  /**
+   * Recall Budget Max
+   *
+   * Ceiling for the adaptive function (after clamping)
+   */
+  recall_budget_max?: number | null;
 };
 
 /**
@@ -1266,6 +1398,38 @@ export type EntityDetailResponse = {
 };
 
 /**
+ * EntityGraphResponse
+ *
+ * Response model for entity co-occurrence graph endpoint.
+ */
+export type EntityGraphResponse = {
+  /**
+   * Nodes
+   */
+  nodes: Array<{
+    [key: string]: unknown;
+  }>;
+  /**
+   * Edges
+   */
+  edges: Array<{
+    [key: string]: unknown;
+  }>;
+  /**
+   * Total Entities
+   */
+  total_entities: number;
+  /**
+   * Total Edges
+   */
+  total_edges: number;
+  /**
+   * Limit
+   */
+  limit: number;
+};
+
+/**
  * EntityIncludeOptions
  *
  * Options for including entity observations in recall results.
@@ -1595,6 +1759,36 @@ export type ListTagsResponse = {
 };
 
 /**
+ * MemoriesTimeseriesResponse
+ *
+ * Time-series of memory ingestion bucketed by time and fact type.
+ */
+export type MemoriesTimeseriesResponse = {
+  /**
+   * Bank Id
+   */
+  bank_id: string;
+  /**
+   * Period
+   *
+   * One of: 1h, 12h, 1d, 7d, 30d, 90d.
+   */
+  period: string;
+  /**
+   * Trunc
+   *
+   * Bucket granularity: minute, hour, day.
+   */
+  trunc: string;
+  /**
+   * Buckets
+   *
+   * Per-bucket counts, always returned fully padded for the requested period.
+   */
+  buckets?: Array<MemoryTimeseriesBucket>;
+};
+
+/**
  * MemoryItem
  *
  * Single memory item for retain.
@@ -1655,6 +1849,44 @@ export type MemoryItem = {
    * Named retain strategy for this item. Overrides the bank's default strategy for this item only. Strategies are defined in the bank config under 'retain_strategies'.
    */
   strategy?: string | null;
+  /**
+   * Update Mode
+   *
+   * How to handle an existing document with the same document_id. 'replace' (default) deletes old data and reprocesses from scratch. 'append' concatenates new content to the existing document text and reprocesses.
+   */
+  update_mode?: "replace" | "append" | null;
+};
+
+/**
+ * MemoryTimeseriesBucket
+ *
+ * One bucket in the memory ingestion time-series.
+ */
+export type MemoryTimeseriesBucket = {
+  /**
+   * Time
+   *
+   * Bucket start timestamp in ISO-8601 (UTC).
+   */
+  time: string;
+  /**
+   * World
+   *
+   * World-fact memories ingested in this bucket.
+   */
+  world?: number;
+  /**
+   * Experience
+   *
+   * Experience memories ingested in this bucket.
+   */
+  experience?: number;
+  /**
+   * Observation
+   *
+   * Observations recorded in this bucket.
+   */
+  observation?: number;
 };
 
 /**
@@ -1722,6 +1954,12 @@ export type MentalModelResponse = {
   reflect_response?: {
     [key: string]: unknown;
   } | null;
+  /**
+   * Is Stale
+   *
+   * True when new memories matching this mental model's tag/fact_type scope have been ingested since last_refreshed_at, or consolidation has pending items. Only populated when detail=full.
+   */
+  is_stale?: boolean | null;
 };
 
 /**
@@ -1730,6 +1968,12 @@ export type MentalModelResponse = {
  * Trigger settings for a mental model.
  */
 export type MentalModelTriggerInput = {
+  /**
+   * Mode
+   *
+   * Refresh mode. 'full' (default) regenerates the mental model content from scratch on each refresh. 'delta' performs surgical edits against the existing content: unchanged sections are preserved byte-for-byte, stale content is removed, new content is added. If the mental model has no existing content, or if the source_query has changed since the last refresh, delta mode falls back to a full regeneration automatically.
+   */
+  mode?: "full" | "delta";
   /**
    * Refresh After Consolidation
    *
@@ -1768,6 +2012,24 @@ export type MentalModelTriggerInput = {
   tag_groups?: Array<
     TagGroupLeaf | TagGroupAndInput | TagGroupOrInput | TagGroupNotInput
   > | null;
+  /**
+   * Include Chunks
+   *
+   * Override whether the internal recall used during refresh returns raw chunk text. None means use the bank/global config default (recall_include_chunks).
+   */
+  include_chunks?: boolean | null;
+  /**
+   * Recall Max Tokens
+   *
+   * Override the token budget for facts returned by the internal recall during refresh. None means use the bank/global config default (recall_max_tokens).
+   */
+  recall_max_tokens?: number | null;
+  /**
+   * Recall Chunks Max Tokens
+   *
+   * Override the token budget for raw chunks returned by the internal recall during refresh. None means use the bank/global config default (recall_chunks_max_tokens).
+   */
+  recall_chunks_max_tokens?: number | null;
 };
 
 /**
@@ -1776,6 +2038,12 @@ export type MentalModelTriggerInput = {
  * Trigger settings for a mental model.
  */
 export type MentalModelTriggerOutput = {
+  /**
+   * Mode
+   *
+   * Refresh mode. 'full' (default) regenerates the mental model content from scratch on each refresh. 'delta' performs surgical edits against the existing content: unchanged sections are preserved byte-for-byte, stale content is removed, new content is added. If the mental model has no existing content, or if the source_query has changed since the last refresh, delta mode falls back to a full regeneration automatically.
+   */
+  mode?: "full" | "delta";
   /**
    * Refresh After Consolidation
    *
@@ -1814,6 +2082,24 @@ export type MentalModelTriggerOutput = {
   tag_groups?: Array<
     TagGroupLeaf | TagGroupAndOutput | TagGroupOrOutput | TagGroupNotOutput
   > | null;
+  /**
+   * Include Chunks
+   *
+   * Override whether the internal recall used during refresh returns raw chunk text. None means use the bank/global config default (recall_include_chunks).
+   */
+  include_chunks?: boolean | null;
+  /**
+   * Recall Max Tokens
+   *
+   * Override the token budget for facts returned by the internal recall during refresh. None means use the bank/global config default (recall_max_tokens).
+   */
+  recall_max_tokens?: number | null;
+  /**
+   * Recall Chunks Max Tokens
+   *
+   * Override the token budget for raw chunks returned by the internal recall during refresh. None means use the bank/global config default (recall_chunks_max_tokens).
+   */
+  recall_chunks_max_tokens?: number | null;
 };
 
 /**
@@ -1900,6 +2186,14 @@ export type OperationStatusResponse = {
    * Child operations for batch operations (if applicable)
    */
   child_operations?: Array<ChildOperationStatus> | null;
+  /**
+   * Task Payload
+   *
+   * Raw task payload (params the operation was submitted with). Only populated when include_payload=true.
+   */
+  task_payload?: {
+    [key: string]: unknown;
+  } | null;
 };
 
 /**
@@ -3178,6 +3472,10 @@ export type ListMemoriesData = {
      */
     q?: string | null;
     /**
+     * Consolidation State
+     */
+    consolidation_state?: string | null;
+    /**
      * Limit
      */
     limit?: number;
@@ -3427,6 +3725,49 @@ export type GetAgentStatsResponses = {
 export type GetAgentStatsResponse =
   GetAgentStatsResponses[keyof GetAgentStatsResponses];
 
+export type GetMemoriesTimeseriesData = {
+  body?: never;
+  headers?: {
+    /**
+     * Authorization
+     */
+    authorization?: string | null;
+  };
+  path: {
+    /**
+     * Bank Id
+     */
+    bank_id: string;
+  };
+  query?: {
+    /**
+     * Period
+     */
+    period?: string;
+  };
+  url: "/v1/default/banks/{bank_id}/stats/memories-timeseries";
+};
+
+export type GetMemoriesTimeseriesErrors = {
+  /**
+   * Validation Error
+   */
+  422: HttpValidationError;
+};
+
+export type GetMemoriesTimeseriesError =
+  GetMemoriesTimeseriesErrors[keyof GetMemoriesTimeseriesErrors];
+
+export type GetMemoriesTimeseriesResponses = {
+  /**
+   * Successful Response
+   */
+  200: MemoriesTimeseriesResponse;
+};
+
+export type GetMemoriesTimeseriesResponse =
+  GetMemoriesTimeseriesResponses[keyof GetMemoriesTimeseriesResponses];
+
 export type ListEntitiesData = {
   body?: never;
   headers?: {
@@ -3476,6 +3817,57 @@ export type ListEntitiesResponses = {
 
 export type ListEntitiesResponse =
   ListEntitiesResponses[keyof ListEntitiesResponses];
+
+export type GetEntityGraphData = {
+  body?: never;
+  headers?: {
+    /**
+     * Authorization
+     */
+    authorization?: string | null;
+  };
+  path: {
+    /**
+     * Bank Id
+     */
+    bank_id: string;
+  };
+  query?: {
+    /**
+     * Limit
+     *
+     * Maximum number of co-occurrence edges to return
+     */
+    limit?: number;
+    /**
+     * Min Count
+     *
+     * Minimum cooccurrence_count to include an edge
+     */
+    min_count?: number;
+  };
+  url: "/v1/default/banks/{bank_id}/entities/graph";
+};
+
+export type GetEntityGraphErrors = {
+  /**
+   * Validation Error
+   */
+  422: HttpValidationError;
+};
+
+export type GetEntityGraphError =
+  GetEntityGraphErrors[keyof GetEntityGraphErrors];
+
+export type GetEntityGraphResponses = {
+  /**
+   * Successful Response
+   */
+  200: EntityGraphResponse;
+};
+
+export type GetEntityGraphResponse =
+  GetEntityGraphResponses[keyof GetEntityGraphResponses];
 
 export type GetEntityData = {
   body?: never;
@@ -4501,7 +4893,14 @@ export type GetOperationStatusData = {
      */
     operation_id: string;
   };
-  query?: never;
+  query?: {
+    /**
+     * Include Payload
+     *
+     * Include the raw task payload (submission params) in the response. May be large.
+     */
+    include_payload?: boolean;
+  };
   url: "/v1/default/banks/{bank_id}/operations/{operation_id}";
 };
 

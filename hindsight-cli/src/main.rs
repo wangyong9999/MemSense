@@ -45,6 +45,12 @@ struct Cli {
     #[arg(short = 'v', long, global = true)]
     verbose: bool,
 
+    /// Named profile to load from ~/.hindsight/cli-profiles/<name>.toml
+    /// (env var HINDSIGHT_PROFILE is used if this flag is omitted).
+    /// Environment variables (HINDSIGHT_API_URL / HINDSIGHT_API_KEY) still override profile values.
+    #[arg(short = 'p', long, global = true, env = "HINDSIGHT_PROFILE")]
+    profile: Option<String>,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -103,6 +109,14 @@ enum Commands {
     #[command(subcommand)]
     Directive(DirectiveCommands),
 
+    /// Manage webhooks (list, create, update, delete, deliveries)
+    #[command(subcommand)]
+    Webhook(WebhookCommands),
+
+    /// Inspect audit logs (list, stats)
+    #[command(subcommand)]
+    Audit(AuditCommands),
+
     /// Check API health status
     Health,
 
@@ -120,7 +134,9 @@ enum Commands {
     Ui,
 
     /// Configure the CLI (API URL, API key, etc.)
-    #[command(after_help = "Configuration priority:\n  1. Environment variables (HINDSIGHT_API_URL, HINDSIGHT_API_KEY) - highest priority\n  2. Config file (~/.hindsight/config)\n  3. Default (http://localhost:8888)")]
+    #[command(
+        after_help = "Configuration priority:\n  1. Environment variables (HINDSIGHT_API_URL, HINDSIGHT_API_KEY) - highest priority\n  2. Named profile (-p / HINDSIGHT_PROFILE, see 'hindsight profile')\n  3. Config file (~/.hindsight/config)\n  4. Default (http://localhost:8888)"
+    )]
     Configure {
         /// API URL to connect to (interactive prompt if not provided)
         #[arg(long)]
@@ -128,6 +144,40 @@ enum Commands {
         /// API key for authentication (sent as Bearer token)
         #[arg(long)]
         api_key: Option<String>,
+    },
+
+    /// Manage named connection profiles (~/.hindsight/cli-profiles/<name>.toml)
+    #[command(subcommand)]
+    Profile(ProfileCommands),
+}
+
+#[derive(Subcommand)]
+enum ProfileCommands {
+    /// Create or overwrite a profile
+    Create {
+        /// Profile name (used with -p/--profile or $HINDSIGHT_PROFILE)
+        name: String,
+        /// API URL (required)
+        #[arg(long)]
+        api_url: String,
+        /// API key (optional; stored in profile file with 0600 permissions)
+        #[arg(long)]
+        api_key: Option<String>,
+    },
+    /// List all known profiles
+    List,
+    /// Show the contents of a profile
+    Show {
+        /// Profile name
+        name: String,
+    },
+    /// Delete a profile
+    Delete {
+        /// Profile name
+        name: String,
+        /// Skip confirmation prompt
+        #[arg(short = 'y', long)]
+        yes: bool,
     },
 }
 
@@ -349,6 +399,53 @@ enum BankCommands {
         #[arg(short = 'y', long)]
         yes: bool,
     },
+
+    /// Set disposition traits directly (1-5 each, via PUT /profile)
+    SetDisposition {
+        /// Bank ID
+        bank_id: String,
+
+        #[arg(long, value_parser = clap::value_parser!(u64).range(1..=5))]
+        skepticism: u64,
+
+        #[arg(long, value_parser = clap::value_parser!(u64).range(1..=5))]
+        literalism: u64,
+
+        #[arg(long, value_parser = clap::value_parser!(u64).range(1..=5))]
+        empathy: u64,
+    },
+
+    /// Recover from a stalled consolidation
+    ConsolidationRecover {
+        /// Bank ID
+        bank_id: String,
+    },
+
+    /// Export a bank template manifest (config + mental models + directives)
+    ExportTemplate {
+        /// Bank ID
+        bank_id: String,
+
+        /// Write manifest to this file instead of stdout
+        #[arg(short = 'o', long)]
+        out: Option<PathBuf>,
+    },
+
+    /// Import a bank template manifest from a JSON file
+    ImportTemplate {
+        /// Bank ID
+        bank_id: String,
+
+        /// Path to a JSON manifest file
+        manifest: PathBuf,
+
+        /// Validate the manifest without applying changes
+        #[arg(long)]
+        dry_run: bool,
+    },
+
+    /// Print the bank template JSON schema
+    TemplateSchema,
 }
 
 #[derive(Subcommand)]
@@ -423,6 +520,10 @@ enum MemoryCommands {
         /// Tag matching mode: any, all, any_strict, all_strict (default: any)
         #[arg(long)]
         tags_match: Option<String>,
+
+        /// Reference timestamp for recall (ISO 8601, e.g. 2023-05-30T23:40:00)
+        #[arg(long)]
+        query_timestamp: Option<String>,
     },
 
     /// Generate answers using bank identity (reflect/reasoning)
@@ -460,6 +561,18 @@ enum MemoryCommands {
         /// Include source facts (based_on) in the response
         #[arg(long)]
         include_facts: bool,
+
+        /// Restrict fact retrieval to these fact types (comma-separated: world, experience, observation)
+        #[arg(long, value_delimiter = ',')]
+        fact_types: Option<Vec<String>>,
+
+        /// Exclude all mental models from the reflect loop
+        #[arg(long)]
+        exclude_mental_models: bool,
+
+        /// Exclude specific mental models by ID (comma-separated)
+        #[arg(long, value_delimiter = ',')]
+        exclude_mental_model_ids: Option<Vec<String>>,
     },
 
     /// Store (retain) a single memory
@@ -481,6 +594,10 @@ enum MemoryCommands {
         /// Queue for background processing
         #[arg(long)]
         r#async: bool,
+
+        /// Deprecated document-level tags (comma-separated). Prefer item-level tags.
+        #[arg(long, value_delimiter = ',')]
+        document_tags: Option<Vec<String>>,
     },
 
     /// Bulk import memories from files (retain)
@@ -521,6 +638,28 @@ enum MemoryCommands {
         /// Fact type to clear (world, agent, opinion). If not specified, clears all types.
         #[arg(short = 't', long, value_parser = ["world", "agent", "opinion"])]
         fact_type: Option<String>,
+
+        /// Skip confirmation prompt
+        #[arg(short = 'y', long)]
+        yes: bool,
+    },
+
+    /// Show the observation history for a memory unit
+    History {
+        /// Bank ID
+        bank_id: String,
+
+        /// Memory unit ID
+        memory_id: String,
+    },
+
+    /// Clear the observations derived from a single memory unit
+    ClearObservations {
+        /// Bank ID
+        bank_id: String,
+
+        /// Memory unit ID
+        memory_id: String,
 
         /// Skip confirmation prompt
         #[arg(short = 'y', long)]
@@ -568,6 +707,19 @@ enum DocumentCommands {
 
         /// Document ID
         document_id: String,
+    },
+
+    /// Update a document (currently only supports replacing tags)
+    Update {
+        /// Bank ID
+        bank_id: String,
+
+        /// Document ID
+        document_id: String,
+
+        /// New tag list (comma-separated). Triggers observation invalidation + re-consolidation.
+        #[arg(long, value_delimiter = ',')]
+        tags: Vec<String>,
     },
 }
 
@@ -626,6 +778,147 @@ enum OperationCommands {
 
         /// Operation ID
         operation_id: String,
+    },
+
+    /// Retry a failed async operation
+    Retry {
+        /// Bank ID
+        bank_id: String,
+
+        /// Operation ID
+        operation_id: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum WebhookCommands {
+    /// List webhooks configured for a bank
+    List {
+        /// Bank ID
+        bank_id: String,
+    },
+
+    /// Create a new webhook
+    Create {
+        /// Bank ID
+        bank_id: String,
+
+        /// Target URL (http/https)
+        url: String,
+
+        /// Event types (comma-separated). Defaults to consolidation.completed
+        #[arg(long, value_delimiter = ',')]
+        event_types: Vec<String>,
+
+        /// Start disabled
+        #[arg(long)]
+        disabled: bool,
+
+        /// HMAC-SHA256 signing secret
+        #[arg(long)]
+        secret: Option<String>,
+    },
+
+    /// Update an existing webhook
+    Update {
+        /// Bank ID
+        bank_id: String,
+
+        /// Webhook ID
+        webhook_id: String,
+
+        /// New target URL
+        #[arg(long)]
+        url: Option<String>,
+
+        /// Replace event types (comma-separated)
+        #[arg(long, value_delimiter = ',')]
+        event_types: Option<Vec<String>>,
+
+        /// Enable or disable
+        #[arg(long)]
+        enabled: Option<bool>,
+
+        /// Replace the signing secret
+        #[arg(long)]
+        secret: Option<String>,
+    },
+
+    /// Delete a webhook
+    Delete {
+        /// Bank ID
+        bank_id: String,
+
+        /// Webhook ID
+        webhook_id: String,
+
+        /// Skip confirmation prompt
+        #[arg(short = 'y', long)]
+        yes: bool,
+    },
+
+    /// List recent delivery attempts for a webhook
+    Deliveries {
+        /// Bank ID
+        bank_id: String,
+
+        /// Webhook ID
+        webhook_id: String,
+
+        /// Pagination cursor
+        #[arg(long)]
+        cursor: Option<String>,
+
+        /// Maximum number of deliveries to return
+        #[arg(short = 'l', long)]
+        limit: Option<i64>,
+    },
+}
+
+#[derive(Subcommand)]
+enum AuditCommands {
+    /// List audit log entries for a bank
+    List {
+        /// Bank ID
+        bank_id: String,
+
+        /// Filter by action (e.g. recall, retain)
+        #[arg(long)]
+        action: Option<String>,
+
+        /// Filter by transport (e.g. http, mcp)
+        #[arg(long)]
+        transport: Option<String>,
+
+        /// Start date/time (ISO 8601)
+        #[arg(long)]
+        start_date: Option<String>,
+
+        /// End date/time (ISO 8601)
+        #[arg(long)]
+        end_date: Option<String>,
+
+        /// Maximum number of entries
+        #[arg(short = 'l', long)]
+        limit: Option<u64>,
+
+        /// Offset for pagination
+        #[arg(short = 's', long)]
+        offset: Option<u64>,
+    },
+
+    /// Show audit log statistics bucketed over time
+    Stats {
+        /// Bank ID
+        bank_id: String,
+
+        /// Filter by action
+        #[arg(long)]
+        action: Option<String>,
+
+        /// Time period (e.g. day, week, month)
+        #[arg(long)]
+        period: Option<String>,
     },
 }
 
@@ -690,6 +983,18 @@ enum MentalModelCommands {
         /// Optional custom ID for the mental model (alphanumeric lowercase with hyphens)
         #[arg(long)]
         id: Option<String>,
+
+        /// Tags for scoped visibility (comma-separated)
+        #[arg(long, value_delimiter = ',')]
+        tags: Vec<String>,
+
+        /// Maximum tokens for generated content (256-8192)
+        #[arg(long, default_value = "2048")]
+        max_tokens: i64,
+
+        /// Refresh this mental model automatically after observations consolidation
+        #[arg(long)]
+        trigger_refresh_after_consolidation: bool,
     },
 
     /// Update a mental model
@@ -703,6 +1008,22 @@ enum MentalModelCommands {
         /// New name
         #[arg(long)]
         name: Option<String>,
+
+        /// New source query
+        #[arg(long)]
+        source_query: Option<String>,
+
+        /// New maximum tokens for generated content
+        #[arg(long)]
+        max_tokens: Option<i64>,
+
+        /// Replace tags (comma-separated)
+        #[arg(long, value_delimiter = ',')]
+        tags: Option<Vec<String>>,
+
+        /// Enable/disable automatic refresh after observations consolidation
+        #[arg(long)]
+        trigger_refresh_after_consolidation: Option<bool>,
     },
 
     /// Delete a mental model
@@ -764,6 +1085,10 @@ enum DirectiveCommands {
 
         /// Directive content (the text to inject into prompts)
         content: String,
+
+        /// Priority — higher-priority directives are injected first
+        #[arg(long, default_value = "0")]
+        priority: i64,
     },
 
     /// Update a directive
@@ -785,6 +1110,10 @@ enum DirectiveCommands {
         /// Enable or disable the directive
         #[arg(long)]
         is_active: Option<bool>,
+
+        /// New priority (higher = injected first)
+        #[arg(long)]
+        priority: Option<i64>,
     },
 
     /// Delete a directive
@@ -802,7 +1131,8 @@ enum DirectiveCommands {
 }
 
 fn main() {
-    if let Err(_) = run() {
+    if let Err(e) = run() {
+        ui::print_error(&format!("{:#}", e));
         std::process::exit(1);
     }
 }
@@ -812,19 +1142,25 @@ fn run() -> Result<()> {
 
     let output_format: OutputFormat = cli.output.into();
     let verbose = cli.verbose;
+    let profile = cli.profile.clone();
 
     // Handle configure command before loading full config (it doesn't need API client)
     if let Commands::Configure { api_url, api_key } = cli.command {
         return handle_configure(api_url, api_key, output_format);
     }
 
+    // Handle profile management commands — no API client required.
+    if let Commands::Profile(cmd) = cli.command {
+        return handle_profile(cmd, output_format);
+    }
+
     // Handle ui command - needs config but not API client
     if let Commands::Ui = cli.command {
-        return handle_ui(output_format);
+        return handle_ui(profile.as_deref(), output_format);
     }
 
     // Load configuration
-    let config = Config::from_env().unwrap_or_else(|e| {
+    let config = Config::load_with_profile(profile.as_deref()).unwrap_or_else(|e| {
         ui::print_error(&format!("Configuration error: {}", e));
         errors::print_config_help();
         std::process::exit(1);
@@ -841,7 +1177,8 @@ fn run() -> Result<()> {
     // Execute command and handle errors
     let result: Result<()> = match cli.command {
         Commands::Configure { .. } => unreachable!(), // Handled above
-        Commands::Ui => unreachable!(), // Handled above
+        Commands::Profile(_) => unreachable!(),       // Handled above
+        Commands::Ui => unreachable!(),               // Handled above
         Commands::Explore => commands::explore::run(&client),
 
         // Health, Metrics, and Version
@@ -852,82 +1189,343 @@ fn run() -> Result<()> {
         // Bank commands
         Commands::Bank(bank_cmd) => match bank_cmd {
             BankCommands::List => commands::bank::list(&client, verbose, output_format),
-            BankCommands::Create { bank_id, name, mission, skepticism, literalism, empathy } => {
-                commands::bank::create(&client, &bank_id, name, mission, skepticism, literalism, empathy, verbose, output_format)
+            BankCommands::Create {
+                bank_id,
+                name,
+                mission,
+                skepticism,
+                literalism,
+                empathy,
+            } => commands::bank::create(
+                &client,
+                &bank_id,
+                name,
+                mission,
+                skepticism,
+                literalism,
+                empathy,
+                verbose,
+                output_format,
+            ),
+            BankCommands::Update {
+                bank_id,
+                name,
+                mission,
+                skepticism,
+                literalism,
+                empathy,
+            } => commands::bank::update(
+                &client,
+                &bank_id,
+                name,
+                mission,
+                skepticism,
+                literalism,
+                empathy,
+                verbose,
+                output_format,
+            ),
+            BankCommands::Disposition { bank_id } => {
+                commands::bank::disposition(&client, &bank_id, verbose, output_format)
             }
-            BankCommands::Update { bank_id, name, mission, skepticism, literalism, empathy } => {
-                commands::bank::update(&client, &bank_id, name, mission, skepticism, literalism, empathy, verbose, output_format)
+            BankCommands::Stats { bank_id } => {
+                commands::bank::stats(&client, &bank_id, verbose, output_format)
             }
-            BankCommands::Disposition { bank_id } => commands::bank::disposition(&client, &bank_id, verbose, output_format),
-            BankCommands::Stats { bank_id } => commands::bank::stats(&client, &bank_id, verbose, output_format),
-            BankCommands::Name { bank_id, name } => commands::bank::update_name(&client, &bank_id, &name, verbose, output_format),
+            BankCommands::Name { bank_id, name } => {
+                commands::bank::update_name(&client, &bank_id, &name, verbose, output_format)
+            }
             BankCommands::Mission { bank_id, mission } => {
                 commands::bank::mission(&client, &bank_id, &mission, verbose, output_format)
             }
-            BankCommands::Background { bank_id, content, no_update_disposition } => {
-                commands::bank::update_background(&client, &bank_id, &content, no_update_disposition, verbose, output_format)
-            }
-            BankCommands::Graph { bank_id, fact_type, limit } => {
-                commands::bank::graph(&client, &bank_id, fact_type, limit, verbose, output_format)
-            }
+            BankCommands::Background {
+                bank_id,
+                content,
+                no_update_disposition,
+            } => commands::bank::update_background(
+                &client,
+                &bank_id,
+                &content,
+                no_update_disposition,
+                verbose,
+                output_format,
+            ),
+            BankCommands::Graph {
+                bank_id,
+                fact_type,
+                limit,
+            } => commands::bank::graph(&client, &bank_id, fact_type, limit, verbose, output_format),
             BankCommands::Delete { bank_id, yes } => {
                 commands::bank::delete(&client, &bank_id, yes, verbose, output_format)
             }
-            BankCommands::Consolidate { bank_id, wait, poll_interval } => {
-                commands::bank::consolidate(&client, &bank_id, wait, poll_interval, verbose, output_format)
-            }
+            BankCommands::Consolidate {
+                bank_id,
+                wait,
+                poll_interval,
+            } => commands::bank::consolidate(
+                &client,
+                &bank_id,
+                wait,
+                poll_interval,
+                verbose,
+                output_format,
+            ),
             BankCommands::ClearObservations { bank_id, yes } => {
                 commands::bank::clear_observations(&client, &bank_id, yes, verbose, output_format)
             }
-            BankCommands::Config { bank_id, overrides_only } => {
-                commands::bank::config(&client, &bank_id, overrides_only, verbose, output_format)
-            }
-            BankCommands::SetConfig { bank_id, llm_provider, llm_model, llm_api_key, llm_base_url, retain_mission, retain_extraction_mode, observations_mission, reflect_mission, disposition_skepticism, disposition_literalism, disposition_empathy } => {
-                commands::bank::set_config(&client, &bank_id, llm_provider, llm_model, llm_api_key, llm_base_url, retain_mission, retain_extraction_mode, observations_mission, reflect_mission, disposition_skepticism, disposition_literalism, disposition_empathy, verbose, output_format)
-            }
+            BankCommands::Config {
+                bank_id,
+                overrides_only,
+            } => commands::bank::config(&client, &bank_id, overrides_only, verbose, output_format),
+            BankCommands::SetConfig {
+                bank_id,
+                llm_provider,
+                llm_model,
+                llm_api_key,
+                llm_base_url,
+                retain_mission,
+                retain_extraction_mode,
+                observations_mission,
+                reflect_mission,
+                disposition_skepticism,
+                disposition_literalism,
+                disposition_empathy,
+            } => commands::bank::set_config(
+                &client,
+                &bank_id,
+                llm_provider,
+                llm_model,
+                llm_api_key,
+                llm_base_url,
+                retain_mission,
+                retain_extraction_mode,
+                observations_mission,
+                reflect_mission,
+                disposition_skepticism,
+                disposition_literalism,
+                disposition_empathy,
+                verbose,
+                output_format,
+            ),
             BankCommands::ResetConfig { bank_id, yes } => {
                 commands::bank::reset_config(&client, &bank_id, yes, verbose, output_format)
+            }
+            BankCommands::SetDisposition {
+                bank_id,
+                skepticism,
+                literalism,
+                empathy,
+            } => commands::bank::set_disposition(
+                &client,
+                &bank_id,
+                skepticism,
+                literalism,
+                empathy,
+                verbose,
+                output_format,
+            ),
+            BankCommands::ConsolidationRecover { bank_id } => {
+                commands::bank::consolidation_recover(&client, &bank_id, verbose, output_format)
+            }
+            BankCommands::ExportTemplate { bank_id, out } => {
+                commands::bank::export_template(&client, &bank_id, out, verbose, output_format)
+            }
+            BankCommands::ImportTemplate {
+                bank_id,
+                manifest,
+                dry_run,
+            } => commands::bank::import_template(
+                &client,
+                &bank_id,
+                &manifest,
+                dry_run,
+                verbose,
+                output_format,
+            ),
+            BankCommands::TemplateSchema => {
+                commands::bank::template_schema(&client, verbose, output_format)
             }
         },
 
         // Memory commands
         Commands::Memory(memory_cmd) => match memory_cmd {
-            MemoryCommands::List { bank_id, fact_type, query, limit, offset } => {
-                commands::memory::list(&client, &bank_id, fact_type, query, limit, offset, verbose, output_format)
-            }
+            MemoryCommands::List {
+                bank_id,
+                fact_type,
+                query,
+                limit,
+                offset,
+            } => commands::memory::list(
+                &client,
+                &bank_id,
+                fact_type,
+                query,
+                limit,
+                offset,
+                verbose,
+                output_format,
+            ),
             MemoryCommands::Get { bank_id, memory_id } => {
                 commands::memory::get(&client, &bank_id, &memory_id, verbose, output_format)
             }
-            MemoryCommands::Recall { bank_id, query, fact_type, budget, max_tokens, trace, include_chunks, chunk_max_tokens, tags, tags_match } => {
-                commands::memory::recall(&client, &bank_id, query, fact_type, budget, max_tokens, trace, include_chunks, chunk_max_tokens, tags, tags_match, verbose, output_format)
-            }
-            MemoryCommands::Reflect { bank_id, query, budget, context, max_tokens, schema, tags, tags_match, include_facts } => {
-                commands::memory::reflect(&client, &bank_id, query, budget, context, max_tokens, schema, tags, tags_match, include_facts, verbose, output_format)
-            }
-            MemoryCommands::Retain { bank_id, content, doc_id, context, r#async } => {
-                commands::memory::retain(&client, &bank_id, content, doc_id, context, r#async, verbose, output_format)
-            }
-            MemoryCommands::RetainFiles { bank_id, path, recursive, context, r#async } => {
-                commands::memory::retain_files(&client, &bank_id, path, recursive, context, r#async, verbose, output_format)
-            }
+            MemoryCommands::Recall {
+                bank_id,
+                query,
+                fact_type,
+                budget,
+                max_tokens,
+                trace,
+                include_chunks,
+                chunk_max_tokens,
+                tags,
+                tags_match,
+                query_timestamp,
+            } => commands::memory::recall(
+                &client,
+                &bank_id,
+                query,
+                fact_type,
+                budget,
+                max_tokens,
+                trace,
+                include_chunks,
+                chunk_max_tokens,
+                tags,
+                tags_match,
+                query_timestamp,
+                verbose,
+                output_format,
+            ),
+            MemoryCommands::Reflect {
+                bank_id,
+                query,
+                budget,
+                context,
+                max_tokens,
+                schema,
+                tags,
+                tags_match,
+                include_facts,
+                fact_types,
+                exclude_mental_models,
+                exclude_mental_model_ids,
+            } => commands::memory::reflect(
+                &client,
+                &bank_id,
+                query,
+                budget,
+                context,
+                max_tokens,
+                schema,
+                tags,
+                tags_match,
+                include_facts,
+                fact_types,
+                exclude_mental_models,
+                exclude_mental_model_ids,
+                verbose,
+                output_format,
+            ),
+            MemoryCommands::Retain {
+                bank_id,
+                content,
+                doc_id,
+                context,
+                r#async,
+                document_tags,
+            } => commands::memory::retain(
+                &client,
+                &bank_id,
+                content,
+                doc_id,
+                context,
+                r#async,
+                document_tags,
+                verbose,
+                output_format,
+            ),
+            MemoryCommands::RetainFiles {
+                bank_id,
+                path,
+                recursive,
+                context,
+                r#async,
+            } => commands::memory::retain_files(
+                &client,
+                &bank_id,
+                path,
+                recursive,
+                context,
+                r#async,
+                verbose,
+                output_format,
+            ),
             MemoryCommands::Delete { bank_id, unit_id } => {
                 commands::memory::delete(&client, &bank_id, &unit_id, verbose, output_format)
             }
-            MemoryCommands::Clear { bank_id, fact_type, yes } => {
-                commands::memory::clear(&client, &bank_id, fact_type, yes, verbose, output_format)
+            MemoryCommands::Clear {
+                bank_id,
+                fact_type,
+                yes,
+            } => commands::memory::clear(&client, &bank_id, fact_type, yes, verbose, output_format),
+            MemoryCommands::History { bank_id, memory_id } => {
+                commands::memory::history(&client, &bank_id, &memory_id, verbose, output_format)
             }
+            MemoryCommands::ClearObservations {
+                bank_id,
+                memory_id,
+                yes,
+            } => commands::memory::clear_observations(
+                &client,
+                &bank_id,
+                &memory_id,
+                yes,
+                verbose,
+                output_format,
+            ),
         },
 
         // Document commands
         Commands::Document(doc_cmd) => match doc_cmd {
-            DocumentCommands::List { bank_id, query, date, limit, offset } => {
-                commands::document::list(&client, &bank_id, query, date, limit, offset, verbose, output_format)
-            }
-            DocumentCommands::Get { bank_id, document_id } => {
-                commands::document::get(&client, &bank_id, &document_id, verbose, output_format)
-            }
-            DocumentCommands::Delete { bank_id, document_id } => {
+            DocumentCommands::List {
+                bank_id,
+                query,
+                date,
+                limit,
+                offset,
+            } => commands::document::list(
+                &client,
+                &bank_id,
+                query,
+                date,
+                limit,
+                offset,
+                verbose,
+                output_format,
+            ),
+            DocumentCommands::Get {
+                bank_id,
+                document_id,
+            } => commands::document::get(&client, &bank_id, &document_id, verbose, output_format),
+            DocumentCommands::Delete {
+                bank_id,
+                document_id,
+            } => {
                 commands::document::delete(&client, &bank_id, &document_id, verbose, output_format)
+            }
+            DocumentCommands::Update {
+                bank_id,
+                document_id,
+                tags,
+            } => {
+                let tag_opt = if tags.is_empty() { None } else { Some(tags) };
+                commands::document::update(
+                    &client,
+                    &bank_id,
+                    &document_id,
+                    tag_opt,
+                    verbose,
+                    output_format,
+                )
             }
         },
 
@@ -946,9 +1544,20 @@ fn run() -> Result<()> {
 
         // Tag commands
         Commands::Tag(tag_cmd) => match tag_cmd {
-            TagCommands::List { bank_id, query, limit, offset } => {
-                commands::tag::list(&client, &bank_id, query, limit, offset, verbose, output_format)
-            }
+            TagCommands::List {
+                bank_id,
+                query,
+                limit,
+                offset,
+            } => commands::tag::list(
+                &client,
+                &bank_id,
+                query,
+                limit,
+                offset,
+                verbose,
+                output_format,
+            ),
         },
 
         // Chunk commands
@@ -963,11 +1572,25 @@ fn run() -> Result<()> {
             OperationCommands::List { bank_id } => {
                 commands::operation::list(&client, &bank_id, verbose, output_format)
             }
-            OperationCommands::Get { bank_id, operation_id } => {
-                commands::operation::get(&client, &bank_id, &operation_id, verbose, output_format)
-            }
-            OperationCommands::Cancel { bank_id, operation_id } => {
-                commands::operation::cancel(&client, &bank_id, &operation_id, verbose, output_format)
+            OperationCommands::Get {
+                bank_id,
+                operation_id,
+            } => commands::operation::get(&client, &bank_id, &operation_id, verbose, output_format),
+            OperationCommands::Cancel {
+                bank_id,
+                operation_id,
+            } => commands::operation::cancel(
+                &client,
+                &bank_id,
+                &operation_id,
+                verbose,
+                output_format,
+            ),
+            OperationCommands::Retry {
+                bank_id,
+                operation_id,
+            } => {
+                commands::operation::retry(&client, &bank_id, &operation_id, verbose, output_format)
             }
         },
 
@@ -976,24 +1599,88 @@ fn run() -> Result<()> {
             MentalModelCommands::List { bank_id } => {
                 commands::mental_model::list(&client, &bank_id, verbose, output_format)
             }
-            MentalModelCommands::Get { bank_id, mental_model_id } => {
-                commands::mental_model::get(&client, &bank_id, &mental_model_id, verbose, output_format)
-            }
-            MentalModelCommands::Create { bank_id, name, source_query, id } => {
-                commands::mental_model::create(&client, &bank_id, &name, &source_query, id.as_deref(), verbose, output_format)
-            }
-            MentalModelCommands::Update { bank_id, mental_model_id, name } => {
-                commands::mental_model::update(&client, &bank_id, &mental_model_id, name, verbose, output_format)
-            }
-            MentalModelCommands::Delete { bank_id, mental_model_id, yes } => {
-                commands::mental_model::delete(&client, &bank_id, &mental_model_id, yes, verbose, output_format)
-            }
-            MentalModelCommands::Refresh { bank_id, mental_model_id } => {
-                commands::mental_model::refresh(&client, &bank_id, &mental_model_id, verbose, output_format)
-            }
-            MentalModelCommands::History { bank_id, mental_model_id } => {
-                commands::mental_model::history(&client, &bank_id, &mental_model_id, verbose, output_format)
-            }
+            MentalModelCommands::Get {
+                bank_id,
+                mental_model_id,
+            } => commands::mental_model::get(
+                &client,
+                &bank_id,
+                &mental_model_id,
+                verbose,
+                output_format,
+            ),
+            MentalModelCommands::Create {
+                bank_id,
+                name,
+                source_query,
+                id,
+                tags,
+                max_tokens,
+                trigger_refresh_after_consolidation,
+            } => commands::mental_model::create(
+                &client,
+                &bank_id,
+                &name,
+                &source_query,
+                id.as_deref(),
+                tags,
+                max_tokens,
+                trigger_refresh_after_consolidation,
+                verbose,
+                output_format,
+            ),
+            MentalModelCommands::Update {
+                bank_id,
+                mental_model_id,
+                name,
+                source_query,
+                max_tokens,
+                tags,
+                trigger_refresh_after_consolidation,
+            } => commands::mental_model::update(
+                &client,
+                &bank_id,
+                &mental_model_id,
+                name,
+                source_query,
+                max_tokens,
+                tags,
+                trigger_refresh_after_consolidation,
+                verbose,
+                output_format,
+            ),
+            MentalModelCommands::Delete {
+                bank_id,
+                mental_model_id,
+                yes,
+            } => commands::mental_model::delete(
+                &client,
+                &bank_id,
+                &mental_model_id,
+                yes,
+                verbose,
+                output_format,
+            ),
+            MentalModelCommands::Refresh {
+                bank_id,
+                mental_model_id,
+            } => commands::mental_model::refresh(
+                &client,
+                &bank_id,
+                &mental_model_id,
+                verbose,
+                output_format,
+            ),
+            MentalModelCommands::History {
+                bank_id,
+                mental_model_id,
+            } => commands::mental_model::history(
+                &client,
+                &bank_id,
+                &mental_model_id,
+                verbose,
+                output_format,
+            ),
         },
 
         // Directive commands
@@ -1001,18 +1688,150 @@ fn run() -> Result<()> {
             DirectiveCommands::List { bank_id } => {
                 commands::directive::list(&client, &bank_id, verbose, output_format)
             }
-            DirectiveCommands::Get { bank_id, directive_id } => {
-                commands::directive::get(&client, &bank_id, &directive_id, verbose, output_format)
+            DirectiveCommands::Get {
+                bank_id,
+                directive_id,
+            } => commands::directive::get(&client, &bank_id, &directive_id, verbose, output_format),
+            DirectiveCommands::Create {
+                bank_id,
+                name,
+                content,
+                priority,
+            } => commands::directive::create(
+                &client,
+                &bank_id,
+                &name,
+                &content,
+                priority,
+                verbose,
+                output_format,
+            ),
+            DirectiveCommands::Update {
+                bank_id,
+                directive_id,
+                name,
+                content,
+                is_active,
+                priority,
+            } => commands::directive::update(
+                &client,
+                &bank_id,
+                &directive_id,
+                name,
+                content,
+                is_active,
+                priority,
+                verbose,
+                output_format,
+            ),
+            DirectiveCommands::Delete {
+                bank_id,
+                directive_id,
+                yes,
+            } => commands::directive::delete(
+                &client,
+                &bank_id,
+                &directive_id,
+                yes,
+                verbose,
+                output_format,
+            ),
+        },
+
+        // Webhook commands
+        Commands::Webhook(wh_cmd) => match wh_cmd {
+            WebhookCommands::List { bank_id } => {
+                commands::webhook::list(&client, &bank_id, verbose, output_format)
             }
-            DirectiveCommands::Create { bank_id, name, content } => {
-                commands::directive::create(&client, &bank_id, &name, &content, verbose, output_format)
-            }
-            DirectiveCommands::Update { bank_id, directive_id, name, content, is_active } => {
-                commands::directive::update(&client, &bank_id, &directive_id, name, content, is_active, verbose, output_format)
-            }
-            DirectiveCommands::Delete { bank_id, directive_id, yes } => {
-                commands::directive::delete(&client, &bank_id, &directive_id, yes, verbose, output_format)
-            }
+            WebhookCommands::Create {
+                bank_id,
+                url,
+                event_types,
+                disabled,
+                secret,
+            } => commands::webhook::create(
+                &client,
+                &bank_id,
+                &url,
+                event_types,
+                !disabled,
+                secret,
+                verbose,
+                output_format,
+            ),
+            WebhookCommands::Update {
+                bank_id,
+                webhook_id,
+                url,
+                event_types,
+                enabled,
+                secret,
+            } => commands::webhook::update(
+                &client,
+                &bank_id,
+                &webhook_id,
+                url,
+                event_types,
+                enabled,
+                secret,
+                verbose,
+                output_format,
+            ),
+            WebhookCommands::Delete {
+                bank_id,
+                webhook_id,
+                yes,
+            } => commands::webhook::delete(
+                &client,
+                &bank_id,
+                &webhook_id,
+                yes,
+                verbose,
+                output_format,
+            ),
+            WebhookCommands::Deliveries {
+                bank_id,
+                webhook_id,
+                cursor,
+                limit,
+            } => commands::webhook::deliveries(
+                &client,
+                &bank_id,
+                &webhook_id,
+                cursor,
+                limit,
+                verbose,
+                output_format,
+            ),
+        },
+
+        // Audit commands
+        Commands::Audit(audit_cmd) => match audit_cmd {
+            AuditCommands::List {
+                bank_id,
+                action,
+                transport,
+                start_date,
+                end_date,
+                limit,
+                offset,
+            } => commands::audit::list(
+                &client,
+                &bank_id,
+                action,
+                transport,
+                start_date,
+                end_date,
+                limit,
+                offset,
+                verbose,
+                output_format,
+            ),
+            AuditCommands::Stats {
+                bank_id,
+                action,
+                period,
+            } => commands::audit::stats(&client, &bank_id, action, period, verbose, output_format),
         },
     };
 
@@ -1024,7 +1843,11 @@ fn run() -> Result<()> {
     Ok(())
 }
 
-fn handle_configure(api_url: Option<String>, api_key: Option<String>, output_format: OutputFormat) -> Result<()> {
+fn handle_configure(
+    api_url: Option<String>,
+    api_key: Option<String>,
+    output_format: OutputFormat,
+) -> Result<()> {
     // Load current config to show current state
     let current_config = Config::load().ok();
 
@@ -1038,7 +1861,7 @@ fn handle_configure(api_url: Option<String>, api_key: Option<String>, output_for
             if let Some(ref key) = config.api_key {
                 // Mask the API key for display
                 let masked = if key.len() > 8 {
-                    format!("{}...{}", &key[..4], &key[key.len()-4..])
+                    format!("{}...{}", &key[..4], &key[key.len() - 4..])
                 } else {
                     "****".to_string()
                 };
@@ -1080,7 +1903,7 @@ fn handle_configure(api_url: Option<String>, api_key: Option<String>, output_for
         println!("  API URL: {}", new_api_url);
         if let Some(ref key) = new_api_key {
             let masked = if key.len() > 8 {
-                format!("{}...{}", &key[..4], &key[key.len()-4..])
+                format!("{}...{}", &key[..4], &key[key.len() - 4..])
             } else {
                 "****".to_string()
             };
@@ -1100,11 +1923,11 @@ fn handle_configure(api_url: Option<String>, api_key: Option<String>, output_for
     Ok(())
 }
 
-fn handle_ui(output_format: OutputFormat) -> Result<()> {
+fn handle_ui(profile: Option<&str>, output_format: OutputFormat) -> Result<()> {
     use std::process::Command;
 
     // Load configuration to get the API URL
-    let config = Config::load().unwrap_or_else(|e| {
+    let config = Config::load_with_profile(profile).unwrap_or_else(|e| {
         ui::print_error(&format!("Configuration error: {}", e));
         errors::print_config_help();
         std::process::exit(1);
@@ -1145,4 +1968,119 @@ fn handle_ui(output_format: OutputFormat) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn mask_api_key(key: &str) -> String {
+    if key.len() > 8 {
+        format!("{}...{}", &key[..4], &key[key.len() - 4..])
+    } else {
+        "****".to_string()
+    }
+}
+
+fn handle_profile(cmd: ProfileCommands, output_format: OutputFormat) -> Result<()> {
+    match cmd {
+        ProfileCommands::Create {
+            name,
+            api_url,
+            api_key,
+        } => {
+            let path = Config::save_profile(&name, &api_url, api_key.as_deref())?;
+            if output_format == OutputFormat::Pretty {
+                ui::print_success(&format!("Profile '{}' saved to {}", name, path.display()));
+                println!();
+                println!("  API URL: {}", api_url);
+                if let Some(ref key) = api_key {
+                    println!("  API Key: {}", mask_api_key(key));
+                }
+                println!();
+                println!(
+                    "Use with: hindsight -p {} <command>  (or export HINDSIGHT_PROFILE={})",
+                    name, name
+                );
+            } else {
+                let result = serde_json::json!({
+                    "name": name,
+                    "api_url": api_url,
+                    "api_key_set": api_key.is_some(),
+                    "path": path.display().to_string(),
+                });
+                output::print_output(&result, output_format)?;
+            }
+            Ok(())
+        }
+        ProfileCommands::List => {
+            let names = Config::list_profiles()?;
+            if output_format == OutputFormat::Pretty {
+                if names.is_empty() {
+                    ui::print_info("No profiles found.");
+                    println!();
+                    println!("Create one with: hindsight profile create <name> --api-url <url>");
+                } else {
+                    ui::print_info("Profiles:");
+                    for name in &names {
+                        println!("  • {}", name);
+                    }
+                }
+            } else {
+                output::print_output(&serde_json::json!({ "profiles": names }), output_format)?;
+            }
+            Ok(())
+        }
+        ProfileCommands::Show { name } => {
+            let (api_url, api_key) = Config::load_profile(&name)?;
+            let path = Config::profile_file_path(&name)
+                .map(|p| p.display().to_string())
+                .unwrap_or_default();
+            if output_format == OutputFormat::Pretty {
+                ui::print_info(&format!("Profile '{}'", name));
+                println!();
+                println!("  Path:    {}", path);
+                println!("  API URL: {}", api_url);
+                if let Some(ref key) = api_key {
+                    println!("  API Key: {}", mask_api_key(key));
+                }
+            } else {
+                let result = serde_json::json!({
+                    "name": name,
+                    "path": path,
+                    "api_url": api_url,
+                    "api_key_set": api_key.is_some(),
+                });
+                output::print_output(&result, output_format)?;
+            }
+            Ok(())
+        }
+        ProfileCommands::Delete { name, yes } => {
+            let path = Config::profile_file_path(&name)
+                .ok_or_else(|| anyhow::anyhow!("Could not determine home directory"))?;
+            if !path.exists() {
+                anyhow::bail!("profile '{}' not found at {}", name, path.display());
+            }
+            if !yes && output_format == OutputFormat::Pretty {
+                print!("Delete profile '{}' at {}? [y/N]: ", name, path.display());
+                std::io::Write::flush(&mut std::io::stdout())?;
+                let mut input = String::new();
+                std::io::stdin().read_line(&mut input)?;
+                if !matches!(input.trim().to_lowercase().as_str(), "y" | "yes") {
+                    ui::print_info("Aborted.");
+                    return Ok(());
+                }
+            }
+            let deleted = Config::delete_profile(&name)?;
+            if output_format == OutputFormat::Pretty {
+                ui::print_success(&format!("Deleted profile '{}' ({})", name, deleted.display()));
+            } else {
+                output::print_output(
+                    &serde_json::json!({
+                        "name": name,
+                        "path": deleted.display().to_string(),
+                        "deleted": true,
+                    }),
+                    output_format,
+                )?;
+            }
+            Ok(())
+        }
+    }
 }

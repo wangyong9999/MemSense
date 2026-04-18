@@ -64,8 +64,8 @@
       "id": "hermes",
       "name": "Hermes",
       "description": "Use Hindsight as the memory backend for the Hermes multi-agent messaging framework.",
-      "type": "official",
-      "by": "hindsight",
+      "type": "native",
+      "by": "hermes",
       "category": "framework",
       "link": "/sdks/integrations/hermes",
       "icon": "/img/icons/hermes.png"
@@ -181,6 +181,26 @@
       "icon": "/img/icons/autogen.svg"
     },
     {
+      "id": "opencode",
+      "name": "OpenCode",
+      "description": "Persistent long-term memory plugin for OpenCode. Auto-retains conversations, recalls context on session start, and provides retain/recall/reflect tools.",
+      "type": "official",
+      "by": "hindsight",
+      "category": "tool",
+      "link": "/sdks/integrations/opencode",
+      "icon": "/img/icons/opencode.svg"
+    },
+    {
+      "id": "openai-agents",
+      "name": "OpenAI Agents SDK",
+      "description": "Give OpenAI Agents SDK agents persistent long-term memory with Hindsight FunctionTool instances for retain, recall, and reflect.",
+      "type": "official",
+      "by": "hindsight",
+      "category": "framework",
+      "link": "/sdks/integrations/openai-agents",
+      "icon": "/img/icons/openai-agents.svg"
+    },
+    {
       "id": "hindclaw",
       "name": "HindClaw",
       "description": "Production memory infrastructure for AI agents — server-side access control via Hindsight extensions, Terraform provider for users/groups/banks/permissions, and an OpenClaw plugin with auto-managed embed.",
@@ -189,6 +209,16 @@
       "category": "framework",
       "link": "https://github.com/mrkhachaturov/hindclaw",
       "icon": "/img/icons/hindclaw.png"
+    },
+    {
+      "id": "context-forge",
+      "name": "ContextForge",
+      "description": "Register Hindsight as an MCP backend in ContextForge gateway. Gives every connected AI tool access to long-term memory via a unified MCP hub.",
+      "type": "community",
+      "by": "anderapartners",
+      "category": "mcp",
+      "link": "/sdks/integrations/context-forge",
+      "icon": "/img/icons/mcp.png"
     }
   ]
 }

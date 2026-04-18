@@ -33,6 +33,11 @@ See [Configuration](./configuration#llm-provider) for setup examples.
 Set `HINDSIGHT_API_LLM_PROVIDER=bedrock` to use AWS Bedrock models directly. Model names use Bedrock model IDs (e.g., `us.amazon.nova-2-lite-v1:0`). No API key is required — authentication uses AWS credentials (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION_NAME`) or IAM roles.
 
 See [Configuration](./configuration#llm-provider) for setup examples.
+> **💡 Built-in llama.cpp (fully local, no API key)**
+> 
+Set `HINDSIGHT_API_LLM_PROVIDER=llamacpp` to run a built-in llama.cpp server with no external dependencies. A Gemma 4 E2B GGUF model (~3.5 GB) is auto-downloaded on first run. Requires the `local-llm` extra: `pip install 'hindsight-api-slim[local-llm]'`.
+
+See [Configuration](./configuration#built-in-llamacpp) for all options.
 > **💡 LiteLLM Provider (Azure, Together AI, and more)**
 > 
 Set `HINDSIGHT_API_LLM_PROVIDER=litellm` to use any model supported by [LiteLLM](https://docs.litellm.ai/docs/providers), including **Azure OpenAI**, **Together AI**, **Fireworks AI**, and many more. Model names use LiteLLM's provider prefix format (e.g., `azure/gpt-4o`).
@@ -77,12 +82,14 @@ Each provider has a recommended default model that's used when `HINDSIGHT_API_LL
 | `groq` | `openai/gpt-oss-120b` |
 | `minimax` | `MiniMax-M2.7` |
 | `ollama` | `gemma3:12b` |
+| `llamacpp` | `gemma-4-e2b-it` (auto-downloaded GGUF) |
 | `lmstudio` | `local-model` |
 | `vertexai` | `gemini-2.0-flash-001` |
 | `openai-codex` | `gpt-5.2-codex` |
 | `claude-code` | `claude-sonnet-4-5-20250929` |
 | `bedrock` | `us.amazon.nova-2-lite-v1:0` |
 | `volcano` | `doubao-pro-32k` |
+| `openrouter` | `qwen/qwen3.5-9b` |
 | `litellm` | `gpt-4o-mini` |
 
 **Example:** Setting just the provider uses its default model:
@@ -367,6 +374,7 @@ Converts text into dense vector representations for semantic similarity search.
 | `local` | SentenceTransformers (default) | Development, low latency |
 | `openai` | OpenAI embeddings API | Production, high quality |
 | `cohere` | Cohere embeddings API | Production, multilingual |
+| `google` | Google embeddings (Gemini API or Vertex AI) | Production, multilingual, high quality |
 | `tei` | HuggingFace Text Embeddings Inference | Production, self-hosted |
 | `litellm` | LiteLLM proxy (unified gateway) | Multi-provider setups |
 
@@ -384,6 +392,14 @@ Converts text into dense vector representations for semantic similarity search.
 | `text-embedding-3-small` | 1536 | Default OpenAI, cost-effective |
 | `text-embedding-3-large` | 3072 | Higher quality, more expensive |
 | `text-embedding-ada-002` | 1536 | Legacy model |
+
+### Google Models
+
+| Model | Dimensions | Use Case |
+|-------|------------|----------|
+| `gemini-embedding-001` | 768 (configurable) | Default Google, general purpose |
+
+Google's `gemini-embedding-001` supports configurable output dimensionality via truncation, google recommend using: 768, 1536, 3072, via `HINDSIGHT_API_EMBEDDINGS_GEMINI_OUTPUT_DIMENSIONALITY`. Default is 768.
 
 ### Cohere Models
 
@@ -412,6 +428,16 @@ export HINDSIGHT_API_EMBEDDINGS_PROVIDER=cohere
 export HINDSIGHT_API_COHERE_API_KEY=your-api-key
 export HINDSIGHT_API_EMBEDDINGS_COHERE_MODEL=embed-english-v3.0
 
+# Google (API key auth)
+export HINDSIGHT_API_EMBEDDINGS_PROVIDER=google
+export HINDSIGHT_API_EMBEDDINGS_GEMINI_API_KEY=xxxxxxxxxxxx
+export HINDSIGHT_API_EMBEDDINGS_GEMINI_MODEL=gemini-embedding-001
+
+# Google (Vertex AI auth - auto-detected when project ID is set)
+export HINDSIGHT_API_EMBEDDINGS_PROVIDER=google
+export HINDSIGHT_API_EMBEDDINGS_GEMINI_MODEL=gemini-embedding-001
+export HINDSIGHT_API_EMBEDDINGS_VERTEXAI_PROJECT_ID=your-gcp-project-id
+
 # TEI (self-hosted)
 export HINDSIGHT_API_EMBEDDINGS_PROVIDER=tei
 export HINDSIGHT_API_EMBEDDINGS_TEI_URL=http://localhost:8080
@@ -439,6 +465,7 @@ Reranks initial search results to improve precision.
 | `local` | SentenceTransformers CrossEncoder (default) | Development, low latency |
 | `cohere` | Cohere rerank API | Production, high quality |
 | `zeroentropy` | ZeroEntropy rerank API (zerank-2) | Production, state-of-the-art accuracy |
+| `siliconflow` | SiliconFlow rerank API (Cohere-compatible `/rerank` endpoint) | Users in China or anyone on SiliconFlow's platform |
 | `tei` | HuggingFace Text Embeddings Inference | Production, self-hosted |
 | `flashrank` | FlashRank (lightweight, fast) | Resource-constrained environments |
 | `litellm` | LiteLLM proxy (unified gateway) | Multi-provider setups |
@@ -467,6 +494,15 @@ Reranks initial search results to improve precision.
 | `zerank-2` | Flagship multilingual reranker (default) |
 | `zerank-2-small` | Faster, lighter variant |
 
+### SiliconFlow Models
+
+SiliconFlow hosts a range of open-weight rerankers behind a Cohere-compatible `/rerank` endpoint:
+
+| Model | Use Case |
+|-------|----------|
+| `BAAI/bge-reranker-v2-m3` | Multilingual, strong default |
+| `Qwen/Qwen3-Reranker-8B` | Larger, higher accuracy |
+
 ### LiteLLM Supported Providers
 
 LiteLLM supports multiple reranking providers via the `/rerank` endpoint:
@@ -491,10 +527,26 @@ export HINDSIGHT_API_RERANKER_PROVIDER=cohere
 export HINDSIGHT_API_COHERE_API_KEY=your-api-key
 export HINDSIGHT_API_RERANKER_COHERE_MODEL=rerank-english-v3.0
 
+# Cohere-compatible endpoint (Azure AI Foundry, Jina, Voyage, self-hosted BGE, ...)
+# Setting COHERE_BASE_URL switches the provider off the Cohere SDK and onto a
+# plain HTTP client that speaks the standard rerank wire format:
+#   POST {base_url}  Authorization: Bearer <key>
+#   {"model","query","documents","return_documents":false}
+#   -> {"results":[{"index","relevance_score"}, ...]}
+export HINDSIGHT_API_RERANKER_PROVIDER=cohere
+export HINDSIGHT_API_RERANKER_COHERE_API_KEY=your-api-key
+export HINDSIGHT_API_RERANKER_COHERE_MODEL=rerank-v3.5  # whatever model the endpoint serves
+export HINDSIGHT_API_RERANKER_COHERE_BASE_URL=https://your-endpoint.example/rerank
+
 # ZeroEntropy (state-of-the-art accuracy)
 export HINDSIGHT_API_RERANKER_PROVIDER=zeroentropy
 export HINDSIGHT_API_RERANKER_ZEROENTROPY_API_KEY=your-api-key
 export HINDSIGHT_API_RERANKER_ZEROENTROPY_MODEL=zerank-2  # default, can omit
+
+# SiliconFlow (Cohere-compatible /rerank endpoint)
+export HINDSIGHT_API_RERANKER_PROVIDER=siliconflow
+export HINDSIGHT_API_RERANKER_SILICONFLOW_API_KEY=your-api-key
+export HINDSIGHT_API_RERANKER_SILICONFLOW_MODEL=BAAI/bge-reranker-v2-m3  # default, can omit
 
 # TEI (self-hosted)
 export HINDSIGHT_API_RERANKER_PROVIDER=tei

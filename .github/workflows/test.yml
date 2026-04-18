@@ -32,6 +32,7 @@ jobs:
       helm: ${{ steps.filter.outputs.helm }}
       docs: ${{ steps.filter.outputs.docs }}
       embed: ${{ steps.filter.outputs.embed }}
+      all-npm: ${{ steps.filter.outputs.all-npm }}
       hindsight-all: ${{ steps.filter.outputs.hindsight-all }}
       integration-tests: ${{ steps.filter.outputs.integration-tests }}
       integrations-openclaw: ${{ steps.filter.outputs.integrations-openclaw }}
@@ -43,8 +44,12 @@ jobs:
       integrations-litellm: ${{ steps.filter.outputs.integrations-litellm }}
       integrations-pydantic-ai: ${{ steps.filter.outputs.integrations-pydantic-ai }}
       integrations-ag2: ${{ steps.filter.outputs.integrations-ag2 }}
-      integrations-hermes: ${{ steps.filter.outputs.integrations-hermes }}
       integrations-llamaindex: ${{ steps.filter.outputs.integrations-llamaindex }}
+      integrations-paperclip: ${{ steps.filter.outputs.integrations-paperclip }}
+      integrations-opencode: ${{ steps.filter.outputs.integrations-opencode }}
+      integrations-cloudflare-oauth-proxy: ${{ steps.filter.outputs.integrations-cloudflare-oauth-proxy }}
+      integrations-lockfiles: ${{ steps.filter.outputs.integrations-lockfiles }}
+      integrations-openai-agents: ${{ steps.filter.outputs.integrations-openai-agents }}
       dev: ${{ steps.filter.outputs.dev }}
       ci: ${{ steps.filter.outputs.ci }}
       # Secrets are available for internal PRs, pull_request_review, and workflow_dispatch.
@@ -91,6 +96,10 @@ jobs:
             - '*.md'
           embed:
             - 'hindsight-embed/**'
+          all-npm:
+            - 'hindsight-all-npm/**'
+            - 'package.json'
+            - 'package-lock.json'
           hindsight-all:
             - 'hindsight-all/**'
           integration-tests:
@@ -113,14 +122,47 @@ jobs:
             - 'hindsight-integrations/pydantic-ai/**'
           integrations-ag2:
             - 'hindsight-integrations/ag2/**'
-          integrations-hermes:
-            - 'hindsight-integrations/hermes/**'
           integrations-llamaindex:
             - 'hindsight-integrations/llamaindex/**'
+          integrations-paperclip:
+            - 'hindsight-integrations/paperclip/**'
+          integrations-opencode:
+            - 'hindsight-integrations/opencode/**'
+          integrations-cloudflare-oauth-proxy:
+            - 'hindsight-integrations/cloudflare-oauth-proxy/**'
+          integrations-lockfiles:
+            - 'hindsight-integrations/*/package-lock.json'
+            - 'hindsight-integrations/*/package.json'
+            - 'scripts/check-integration-lockfiles.sh'
+          integrations-openai-agents:
+            - 'hindsight-integrations/openai-agents/**'
           dev:
             - 'hindsight-dev/**'
           ci:
             - '.github/**'
+
+  # Fail fast if any hindsight-integrations/*/package-lock.json was regenerated
+  # from the monorepo root and ended up symlinked at a workspace path instead
+  # of the npm registry. That bit us on the 0.6.0 openclaw release — tsc in
+  # the release workflow couldn't find `@vectorize-io/hindsight-client`
+  # because its `resolved` url pointed at a workspace dir whose `dist/` was
+  # gitignored and unbuilt. Catching this at PR time means the release CI
+  # never hits that class of failure.
+  check-integration-lockfiles:
+    needs: [detect-changes]
+    if: >-
+      github.event_name != 'pull_request_review' &&
+      (github.event_name == 'workflow_dispatch' ||
+      needs.detect-changes.outputs.integrations-lockfiles == 'true' ||
+      needs.detect-changes.outputs.ci == 'true')
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v6
+      with:
+        ref: ${{ github.event.pull_request.head.sha || '' }}
+
+    - name: Check integration lockfiles resolve from the npm registry
+      run: ./scripts/check-integration-lockfiles.sh
 
   build-api-python-versions:
     needs: [detect-changes]
@@ -180,12 +222,12 @@ jobs:
     - name: Build TypeScript client
       run: npm run build --workspace=hindsight-clients/typescript
 
-  build-openclaw-integration:
+  build-hindsight-all-npm:
     needs: [detect-changes]
     if: >-
       github.event_name != 'pull_request_review' &&
       (github.event_name == 'workflow_dispatch' ||
-      needs.detect-changes.outputs.integrations-openclaw == 'true' ||
+      needs.detect-changes.outputs.all-npm == 'true' ||
       needs.detect-changes.outputs.ci == 'true')
     runs-on: ubuntu-latest
 
@@ -198,18 +240,125 @@ jobs:
       uses: actions/setup-node@v6
       with:
         node-version: '22'
+        cache: 'npm'
+        cache-dependency-path: package-lock.json
 
     - name: Install dependencies
+      run: npm ci --workspace=hindsight-all-npm
+
+    - name: Run tests
+      run: npm test --workspace=hindsight-all-npm
+
+    - name: Build
+      run: npm run build --workspace=hindsight-all-npm
+
+  build-openclaw-integration:
+    needs: [detect-changes]
+    if: >-
+      github.event_name != 'pull_request_review' &&
+      (github.event_name == 'workflow_dispatch' ||
+      needs.detect-changes.outputs.integrations-openclaw == 'true' ||
+      needs.detect-changes.outputs.clients-ts == 'true' ||
+      needs.detect-changes.outputs.all-npm == 'true' ||
+      needs.detect-changes.outputs.ci == 'true')
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v6
+      with:
+        ref: ${{ github.event.pull_request.head.sha || '' }}
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v6
+      with:
+        node-version: '22'
+        cache: 'npm'
+        cache-dependency-path: package-lock.json
+
+    # openclaw depends on two monorepo workspaces via `file:` deps:
+    # @vectorize-io/hindsight-client and @vectorize-io/hindsight-all. Their
+    # `dist/` directories are gitignored, so we must build them first.
+    # Otherwise vitest/tsc in openclaw fails with
+    # "Failed to resolve entry for package ..." on the value imports.
+    - name: Install root workspace dependencies
+      run: npm ci
+
+    - name: Build hindsight-client (openclaw dep)
+      run: npm run build --workspace=hindsight-clients/typescript
+
+    - name: Build hindsight-all-npm (openclaw dep)
+      run: npm run build --workspace=hindsight-all-npm
+
+    - name: Install openclaw dependencies
       working-directory: ./hindsight-integrations/openclaw
       run: npm ci
+
+    # Build must run before tests: one unit test in src/backfill.test.ts
+    # creates a symlink to `$cwd/dist/backfill.js` and calls realpathSync on
+    # it via isDirectExecution(). Without a populated dist/ the realpath call
+    # throws, both paths stay unresolved, and the equality assertion fails.
+    - name: Build
+      working-directory: ./hindsight-integrations/openclaw
+      run: npm run build
 
     - name: Run tests
       working-directory: ./hindsight-integrations/openclaw
       run: npm test
 
-    - name: Build
+  smoke-openclaw-install:
+    needs: [detect-changes, build-openclaw-integration]
+    if: >-
+      github.event_name != 'pull_request_review' &&
+      (github.event_name == 'workflow_dispatch' ||
+      needs.detect-changes.outputs.integrations-openclaw == 'true' ||
+      needs.detect-changes.outputs.clients-ts == 'true' ||
+      needs.detect-changes.outputs.all-npm == 'true' ||
+      needs.detect-changes.outputs.ci == 'true')
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v6
+      with:
+        ref: ${{ github.event.pull_request.head.sha || '' }}
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v6
+      with:
+        node-version: '22'
+        cache: 'npm'
+        cache-dependency-path: package-lock.json
+
+    # Install the openclaw CLI globally. The smoke test exercises the real
+    # `openclaw plugins install` / `openclaw config set` / `openclaw plugins
+    # doctor` commands — not the in-repo integration tests — so a real CLI
+    # must be on PATH.
+    - name: Install openclaw CLI
+      run: npm install -g openclaw
+
+    - name: Verify openclaw CLI
+      run: openclaw --version
+
+    # openclaw depends on the workspace packages via published version
+    # ranges (^0.1.0 / ^0.5.0), not file: paths, so the smoke test's
+    # `openclaw plugins install <tarball>` resolves them straight from the
+    # npm registry. These builds are just for `npm pack` / local unit
+    # tests, not for resolving the plugin's runtime deps.
+    - name: Install root workspace dependencies
+      run: npm ci
+
+    - name: Build hindsight-client (openclaw dep)
+      run: npm run build --workspace=hindsight-clients/typescript
+
+    - name: Build hindsight-all-npm (openclaw dep)
+      run: npm run build --workspace=hindsight-all-npm
+
+    - name: Install openclaw dependencies
       working-directory: ./hindsight-integrations/openclaw
-      run: npm run build
+      run: npm ci
+
+    - name: Run openclaw install smoke test
+      working-directory: ./hindsight-integrations/openclaw
+      run: ./scripts/smoke-test.sh
 
   test-claude-code-integration:
     needs: [detect-changes]
@@ -326,6 +475,68 @@ jobs:
       working-directory: ./hindsight-integrations/ai-sdk
       run: npm run test:deno
 
+  test-opencode-integration:
+    needs: [detect-changes]
+    if: >-
+      github.event_name != 'pull_request_review' &&
+      (github.event_name == 'workflow_dispatch' ||
+      needs.detect-changes.outputs.integrations-opencode == 'true' ||
+      needs.detect-changes.outputs.ci == 'true')
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v6
+      with:
+        ref: ${{ github.event.pull_request.head.sha || '' }}
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v6
+      with:
+        node-version: '22'
+
+    - name: Install dependencies
+      working-directory: ./hindsight-integrations/opencode
+      run: npm ci
+
+    - name: Run tests
+      working-directory: ./hindsight-integrations/opencode
+      run: npm test
+
+    - name: Build
+      working-directory: ./hindsight-integrations/opencode
+      run: npm run build
+
+  test-cloudflare-oauth-proxy-integration:
+    needs: [detect-changes]
+    if: >-
+      github.event_name != 'pull_request_review' &&
+      (github.event_name == 'workflow_dispatch' ||
+      needs.detect-changes.outputs.integrations-cloudflare-oauth-proxy == 'true' ||
+      needs.detect-changes.outputs.ci == 'true')
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v6
+      with:
+        ref: ${{ github.event.pull_request.head.sha || '' }}
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v6
+      with:
+        node-version: '22'
+
+    - name: Install dependencies
+      working-directory: ./hindsight-integrations/cloudflare-oauth-proxy
+      run: npm ci
+
+    - name: Typecheck
+      working-directory: ./hindsight-integrations/cloudflare-oauth-proxy
+      run: npm run typecheck
+
+    - name: Run tests
+      working-directory: ./hindsight-integrations/cloudflare-oauth-proxy
+      run: npm test
+
   build-chat-integration:
     needs: [detect-changes]
     if: >-
@@ -356,6 +567,37 @@ jobs:
     - name: Build
       working-directory: ./hindsight-integrations/chat
       run: npm run build
+
+  test-paperclip-integration:
+    needs: [detect-changes]
+    if: >-
+      github.event_name != 'pull_request_review' &&
+      (github.event_name == 'workflow_dispatch' ||
+      needs.detect-changes.outputs.integrations-paperclip == 'true' ||
+      needs.detect-changes.outputs.ci == 'true')
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v6
+      with:
+        ref: ${{ github.event.pull_request.head.sha || '' }}
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v6
+      with:
+        node-version: '22'
+
+    - name: Install dependencies
+      working-directory: ./hindsight-integrations/paperclip
+      run: npm ci
+
+    - name: Build
+      working-directory: ./hindsight-integrations/paperclip
+      run: npm run build
+
+    - name: Run tests
+      working-directory: ./hindsight-integrations/paperclip
+      run: npm test
 
   build-control-plane:
     needs: [detect-changes]
@@ -1460,6 +1702,18 @@ jobs:
         print('Models downloaded successfully')
         "
 
+    # openclaw depends on @vectorize-io/hindsight-client and
+    # @vectorize-io/hindsight-all via `file:` — their `dist/` directories are
+    # gitignored and must be built before openclaw's npm ci copies them.
+    - name: Install root workspace dependencies
+      run: npm ci
+
+    - name: Build hindsight-client (openclaw dep)
+      run: npm run build --workspace=hindsight-clients/typescript
+
+    - name: Build hindsight-all-npm (openclaw dep)
+      run: npm run build --workspace=hindsight-all-npm
+
     - name: Install openclaw integration dependencies
       working-directory: ./hindsight-integrations/openclaw
       run: npm ci
@@ -1755,43 +2009,6 @@ jobs:
       working-directory: ./hindsight-integrations/pydantic-ai
       run: uv run pytest tests -v
 
-  test-hermes-integration:
-    needs: [detect-changes]
-    if: >-
-      github.event_name != 'pull_request_review' &&
-      (github.event_name == 'workflow_dispatch' ||
-      needs.detect-changes.outputs.integrations-hermes == 'true' ||
-      needs.detect-changes.outputs.ci == 'true')
-    runs-on: ubuntu-latest
-
-    steps:
-    - uses: actions/checkout@v6
-      with:
-        ref: ${{ github.event.pull_request.head.sha || '' }}
-
-    - name: Install uv
-      uses: astral-sh/setup-uv@v7
-      with:
-        enable-cache: true
-        prune-cache: false
-
-    - name: Set up Python
-      uses: actions/setup-python@v6
-      with:
-        python-version-file: ".python-version"
-
-    - name: Build hermes integration
-      working-directory: ./hindsight-integrations/hermes
-      run: uv build
-
-    - name: Install dependencies
-      working-directory: ./hindsight-integrations/hermes
-      run: uv sync --frozen
-
-    - name: Run tests
-      working-directory: ./hindsight-integrations/hermes
-      run: uv run pytest tests -v
-
   test-llamaindex-integration:
     needs: [detect-changes]
     if: >-
@@ -1827,6 +2044,43 @@ jobs:
 
     - name: Run tests
       working-directory: ./hindsight-integrations/llamaindex
+      run: uv run pytest tests -v
+
+  test-openai-agents-integration:
+    needs: [detect-changes]
+    if: >-
+      github.event_name != 'pull_request_review' &&
+      (github.event_name == 'workflow_dispatch' ||
+      needs.detect-changes.outputs.integrations-openai-agents == 'true' ||
+      needs.detect-changes.outputs.ci == 'true')
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v6
+      with:
+        ref: ${{ github.event.pull_request.head.sha || '' }}
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+        prune-cache: false
+
+    - name: Set up Python
+      uses: actions/setup-python@v6
+      with:
+        python-version-file: ".python-version"
+
+    - name: Build openai-agents integration
+      working-directory: ./hindsight-integrations/openai-agents
+      run: uv build
+
+    - name: Install dependencies
+      working-directory: ./hindsight-integrations/openai-agents
+      run: uv sync --frozen
+
+    - name: Run tests
+      working-directory: ./hindsight-integrations/openai-agents
       run: uv run pytest tests -v
 
   test-pip-slim:
@@ -2333,6 +2587,9 @@ jobs:
     - name: Run generate-openapi
       run: ./scripts/generate-openapi.sh
 
+    - name: Run generate-bank-template-schema
+      run: ./scripts/generate-bank-template-schema.sh
+
     - name: Run generate-clients
       run: ./scripts/generate-clients.sh
 
@@ -2352,6 +2609,7 @@ jobs:
           echo ""
           echo "Please run the following commands locally and commit the changes:"
           echo "  ./scripts/generate-openapi.sh"
+          echo "  ./scripts/generate-bank-template-schema.sh"
           echo "  ./scripts/generate-clients.sh"
           echo "  ./scripts/generate-docs-skill.sh"
           echo "  ./scripts/hooks/lint.sh"
@@ -2413,6 +2671,40 @@ jobs:
         cd hindsight-dev
         uv run check-openapi-compatibility /tmp/old-openapi.json ../hindsight-docs/static/openapi.json
 
+  check-cli-coverage:
+    needs: [detect-changes]
+    if: >-
+      github.event_name != 'pull_request_review' &&
+      (github.event_name == 'workflow_dispatch' ||
+      needs.detect-changes.outputs.core == 'true' ||
+      needs.detect-changes.outputs.cli == 'true' ||
+      needs.detect-changes.outputs.dev == 'true' ||
+      needs.detect-changes.outputs.ci == 'true')
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v6
+      with:
+        ref: ${{ github.event.pull_request.head.sha || '' }}
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+
+    - name: Set up Python
+      uses: actions/setup-python@v6
+      with:
+        python-version-file: ".python-version"
+
+    - name: Install hindsight-dev dependencies
+      run: |
+        cd hindsight-dev && uv sync --frozen --index-strategy unsafe-best-match
+
+    - name: Check CLI covers every OpenAPI operation
+      run: |
+        cd hindsight-dev
+        uv run cli-coverage-check
+
   # Report CI status back to the PR for pull_request_review events.
   # GitHub does not automatically link pull_request_review check runs to the PR,
   # so we create a commit status on the PR head SHA and post a comment.
@@ -2420,14 +2712,19 @@ jobs:
     if: github.event_name == 'pull_request_review' && github.event.review.state == 'approved' && always()
     needs:
       - detect-changes
+      - check-integration-lockfiles
       - build-api-python-versions
       - build-typescript-client
       - build-openclaw-integration
+      - smoke-openclaw-install
       - test-claude-code-integration
       - test-codex-integration
       - build-ai-sdk-integration
       - test-ai-sdk-integration-deno
+      - test-opencode-integration
+      - test-cloudflare-oauth-proxy-integration
       - build-chat-integration
+      - test-paperclip-integration
       - build-control-plane
       - build-docs
       - test-rust-cli
@@ -2446,7 +2743,6 @@ jobs:
       - test-crewai-integration
       - test-litellm-integration
       - test-pydantic-ai-integration
-      - test-hermes-integration
       - test-llamaindex-integration
       - test-pip-slim
       - test-embed
@@ -2455,6 +2751,7 @@ jobs:
       - test-upgrade
       - verify-generated-files
       - check-openapi-compatibility
+      - check-cli-coverage
     runs-on: ubuntu-latest
     permissions:
       statuses: write
@@ -2462,7 +2759,7 @@ jobs:
     steps:
       - name: Determine overall result
         id: result
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const needs = ${{ toJSON(needs) }};
@@ -2495,7 +2792,7 @@ jobs:
             core.setOutput('run_url', runUrl);
 
       - name: Report status to PR
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             await github.rest.repos.createCommitStatus({
@@ -2509,7 +2806,7 @@ jobs:
             });
 
       - name: Comment on PR
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const prNumber = context.payload.pull_request.number;

@@ -108,6 +108,9 @@ cd "$PYTHON_CLIENT_DIR"
 # Run openapi-generator via Docker (pinned version for reproducibility)
 # Use --platform linux/amd64 to ensure identical output on both macOS (arm64) and Linux CI (amd64)
 # Use --user to match current user's UID/GID so generated files are writable
+# Note: the generator may exit non-zero due to a known bug writing
+# README_onlypackage.mustache, but all API/model files are generated
+# before that step, so we allow the failure and verify files below.
 docker run --rm \
     --platform linux/amd64 \
     --user "$(id -u):$(id -g)" \
@@ -118,7 +121,13 @@ docker run --rm \
     -i /local/openapi.json \
     -g python \
     -o /local/out \
-    -c /local/config.yaml
+    -c /local/config.yaml || true
+
+# Verify critical generated files exist
+if [ ! -f "$PYTHON_CLIENT_DIR/hindsight_client_api/api_client.py" ]; then
+    echo "❌ Error: Python client generation failed - api_client.py not found"
+    exit 1
+fi
 
 echo "Organizing generated files..."
 
@@ -138,6 +147,11 @@ if [ -f "$README_BACKUP" ]; then
     cp "$README_BACKUP" "$README_FILE"
     rm "$README_BACKUP"
 fi
+
+# Create PEP 561 py.typed marker files for type checker support
+echo "📦 Creating PEP 561 py.typed marker files..."
+touch "$PYTHON_CLIENT_DIR/hindsight_client_api/py.typed"
+touch "$PYTHON_CLIENT_DIR/hindsight_client/py.typed"
 
 # Keep our custom pyproject.toml (don't let generator overwrite it)
 if [ -f "setup.py" ]; then

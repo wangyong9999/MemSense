@@ -1,6 +1,6 @@
 {
   "name": "@vectorize-io/hindsight-nemoclaw",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Setup CLI for hindsight-openclaw on NemoClaw sandboxes — installs the plugin, configures external API mode, and applies the OpenShell network policy",
   "type": "module",
   "main": "dist/cli.js",
@@ -49,6 +49,7 @@
     "node": ">=22"
   },
   "overrides": {
-    "picomatch": ">=2.3.2 <3.0.0 || >=4.0.4"
+    "picomatch": ">=2.3.2 <3.0.0 || >=4.0.4",
+    "vite": ">=8.0.5"
   }
 }
