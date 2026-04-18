@@ -17,6 +17,18 @@ import PageHero from '@site/src/components/PageHero';
 - `HINDSIGHT_DOTENV_PATH` loads configuration from a custom `.env` file path.
 - Token-accounting fields on recall responses for per-request usage measurement; new `/v1/default/banks/{bank_id}/token-usage` endpoint returns aggregated stats. Flag-gated via `HINDSIGHT_API_TOKEN_ACCOUNTING_ENABLED` (default off).
 
+**Release artefacts**
+
+- Container images in GHCR are signed with cosign (keyless OIDC). Verify with `cosign verify --certificate-identity-regexp '...' --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' ghcr.io/<owner>/hindsight-api:0.5.4`.
+- SPDX SBOM (one per image variant) attached to the GitHub Release.
+- Trivy HIGH/CRITICAL vulnerability scan runs pre-publish; output attached to the release log.
+
+**Operations**
+
+- `scripts/sync-upstream.sh` automates periodic upstream merge: fetch, gap summary, merge prompt, fork-owned regression tests.
+- Root `CHANGELOG.md` pointer + release.sh gate require a docs changelog entry before tagging.
+- Repository layout + compatibility matrix now documented in root `README.md`.
+
 ## [0.5.3](https://github.com/vectorize-io/hindsight/releases/tag/v0.5.3)
 
 **Features**

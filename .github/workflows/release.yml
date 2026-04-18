@@ -8,6 +8,8 @@ on:
 jobs:
   release-python-packages:
     runs-on: ubuntu-latest
+    # MemSense: publish only from the upstream repo; forks skip.
+    if: github.repository == 'vectorize-io/hindsight'
     environment: pypi
     permissions:
       id-token: write
@@ -103,6 +105,8 @@ jobs:
 
   release-typescript-client:
     runs-on: ubuntu-latest
+    # MemSense: publish only from the upstream repo; forks skip.
+    if: github.repository == 'vectorize-io/hindsight'
     environment: npm
 
     steps:
@@ -152,6 +156,8 @@ jobs:
 
   release-hindsight-all-npm:
     runs-on: ubuntu-latest
+    # MemSense: publish only from the upstream repo; forks skip.
+    if: github.repository == 'vectorize-io/hindsight'
     environment: npm
 
     steps:
@@ -201,6 +207,8 @@ jobs:
 
   release-control-plane:
     runs-on: ubuntu-latest
+    # MemSense: publish only from the upstream repo; forks skip.
+    if: github.repository == 'vectorize-io/hindsight'
     environment: npm
 
     steps:
@@ -500,6 +508,9 @@ jobs:
   create-github-release:
     runs-on: ubuntu-latest
     needs: [release-python-packages, release-typescript-client, release-hindsight-all-npm, release-control-plane, release-rust-cli, release-docker-images, release-helm-chart]
+    # MemSense: proceed even if the registry-publish jobs were skipped
+    # (they're gated off on forks). Still requires no upstream job to have failed.
+    if: ${{ !cancelled() && !contains(needs.*.result, 'failure') }}
     permissions:
       contents: write
 
@@ -510,25 +521,32 @@ jobs:
       id: get_version
       run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
 
+    # MemSense: the four artifact downloads below come from publish jobs that
+    # are gated to the upstream repo. On forks they produce no artifact, so
+    # these downloads tolerate absence.
     - name: Download Python packages
+      continue-on-error: true
       uses: actions/download-artifact@v8
       with:
         name: python-packages
         path: ./artifacts/python-packages
 
     - name: Download TypeScript client
+      continue-on-error: true
       uses: actions/download-artifact@v8
       with:
         name: typescript-client
         path: ./artifacts/typescript-client
 
     - name: Download Control Plane
+      continue-on-error: true
       uses: actions/download-artifact@v8
       with:
         name: control-plane
         path: ./artifacts/control-plane
 
     - name: Download hindsight-embed npm wrapper
+      continue-on-error: true
       uses: actions/download-artifact@v8
       with:
         name: hindsight-all-npm
