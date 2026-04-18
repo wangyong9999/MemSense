@@ -1,6 +1,282 @@
 version: 2
+
+# Dependabot coverage matrix.
+# - Weekly schedule to cap PR noise in a monorepo.
+# - Patch + minor updates grouped per ecosystem; majors remain individual
+#   so they get explicit review attention.
+# - open-pull-requests-limit caps backpressure per ecosystem.
+
 updates:
+  # -----------------------------------------------------------------------
+  # GitHub Actions
+  # -----------------------------------------------------------------------
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
+    groups:
+      actions-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # -----------------------------------------------------------------------
+  # Python — main packages (each tracks its own dependency closure)
+  # -----------------------------------------------------------------------
+  - package-ecosystem: "pip"
+    directory: "/hindsight-api-slim"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      python-api-slim-minor-patch:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "pip"
+    directory: "/hindsight-api"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+    groups:
+      python-api-minor-patch:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "pip"
+    directory: "/hindsight-all-slim"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+    groups:
+      python-all-slim-minor-patch:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "pip"
+    directory: "/hindsight-all"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+    groups:
+      python-all-minor-patch:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "pip"
+    directory: "/hindsight-embed"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+    groups:
+      python-embed-minor-patch:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "pip"
+    directory: "/hindsight-clients/python"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+    groups:
+      python-client-minor-patch:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "pip"
+    directory: "/hindsight-dev"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+    groups:
+      python-dev-minor-patch:
+        update-types: ["minor", "patch"]
+
+  # -----------------------------------------------------------------------
+  # Python — integrations (same cadence, grouped heavily to cap noise)
+  # -----------------------------------------------------------------------
+  - package-ecosystem: "pip"
+    directory: "/hindsight-integrations/litellm"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 2
+    groups:
+      integrations-minor-patch:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "pip"
+    directory: "/hindsight-integrations/pydantic-ai"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 2
+    groups:
+      integrations-minor-patch:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "pip"
+    directory: "/hindsight-integrations/crewai"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 2
+    groups:
+      integrations-minor-patch:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "pip"
+    directory: "/hindsight-integrations/langgraph"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 2
+    groups:
+      integrations-minor-patch:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "pip"
+    directory: "/hindsight-integrations/ag2"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 2
+    groups:
+      integrations-minor-patch:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "pip"
+    directory: "/hindsight-integrations/agno"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 2
+    groups:
+      integrations-minor-patch:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "pip"
+    directory: "/hindsight-integrations/strands"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 2
+    groups:
+      integrations-minor-patch:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "pip"
+    directory: "/hindsight-integrations/autogen"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 2
+    groups:
+      integrations-minor-patch:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "pip"
+    directory: "/hindsight-integrations/hermes"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 2
+    groups:
+      integrations-minor-patch:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "pip"
+    directory: "/hindsight-integrations/llamaindex"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 2
+    groups:
+      integrations-minor-patch:
+        update-types: ["minor", "patch"]
+
+  # -----------------------------------------------------------------------
+  # npm — root workspace (covers typescript client, control-plane, docs)
+  # -----------------------------------------------------------------------
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      npm-workspace-minor-patch:
+        update-types: ["minor", "patch"]
+
+  # -----------------------------------------------------------------------
+  # npm — integrations with independent package-locks
+  # -----------------------------------------------------------------------
+  - package-ecosystem: "npm"
+    directory: "/hindsight-integrations/ai-sdk"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 2
+    groups:
+      ts-integrations-minor-patch:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "npm"
+    directory: "/hindsight-integrations/chat"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 2
+    groups:
+      ts-integrations-minor-patch:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "npm"
+    directory: "/hindsight-integrations/openclaw"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 2
+    groups:
+      ts-integrations-minor-patch:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "npm"
+    directory: "/hindsight-integrations/nemoclaw"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 2
+    groups:
+      ts-integrations-minor-patch:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "npm"
+    directory: "/hindsight-integrations/paperclip"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 2
+    groups:
+      ts-integrations-minor-patch:
+        update-types: ["minor", "patch"]
+
+  # -----------------------------------------------------------------------
+  # Rust
+  # -----------------------------------------------------------------------
+  - package-ecosystem: "cargo"
+    directory: "/hindsight-cli"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+    groups:
+      cargo-cli-minor-patch:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "cargo"
+    directory: "/hindsight-clients/rust"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+    groups:
+      cargo-client-minor-patch:
+        update-types: ["minor", "patch"]
+
+  # -----------------------------------------------------------------------
+  # Docker base images (ship target)
+  # -----------------------------------------------------------------------
+  - package-ecosystem: "docker"
+    directory: "/docker/standalone"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 2
+
+  - package-ecosystem: "docker"
+    directory: "/docker/docker-compose/pg_textsearch"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 2
+
+  - package-ecosystem: "docker"
+    directory: "/docker/docker-compose/timescale"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 2
