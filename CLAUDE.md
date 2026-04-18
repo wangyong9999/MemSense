@@ -2,6 +2,18 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Fork Convention (MemSense on upstream Hindsight)
+
+This repo is a soft fork of `vectorize-io/hindsight`. Upstream is added as the `upstream` remote and merged periodically via `scripts/sync-upstream.sh`. Keep merges mechanical:
+
+1. **Do not rename or move upstream files or directories.** Paths like `hindsight-api-slim`, `hindsight-all`, `hindsight-integrations/<name>`, `helm/`, `docker/`, `hindsight-docs/` stay. Renames turn every merge into tree-conflict resolution.
+2. **Fork-only features live in isolated modules we own.** New Python files under `.../engine/<our-feature>/` (e.g. `engine/retain/post_extraction/`, `engine/search/recall_cache.py`). Flags as `HINDSIGHT_API_<FEATURE>_ENABLED` in `config.py`, grouped under `# MemSense ...` comments, default off.
+3. **Single flag-gated hook point per feature** inside upstream files. If multiple sites are genuinely needed (e.g. recall cache init + invalidate on retain/delete/consolidation + recall-enter/exit), consolidate repeated logic behind a helper method like `_invalidate_recall_cache(bank_id)` so each site is a one-liner.
+4. **Prefer a new file over editing an upstream file.** New endpoint → new `hindsight_api/api/<feature>.py`. New script → our own path. New CI job → new workflow file.
+5. **Version numbers track upstream**: our CHANGELOG entry goes ahead of upstream’s latest tag (if upstream is 0.5.3, ours is 0.5.4+). Never reuse an upstream version number.
+6. **Sync cadence**: run `scripts/sync-upstream.sh` at least monthly or after an upstream tag. Small merges beat one big merge.
+7. **On conflict**, preserve both sides. Fork-only features are additive and never conflict semantically — when `<<<<<<<` appears in an upstream file, resolve by stacking our hook + upstream’s change.
+
 ## Project Overview
 
 Hindsight is an agent memory system that provides long-term memory for AI agents using biomimetic data structures. Memories are organized as:
