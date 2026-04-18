@@ -2779,8 +2779,8 @@ class MemoryEngine(MemoryEngineInterface):
                 except Exception as e:
                     logger.warning(f"Post-recall hook error (non-fatal): {e}")
 
-            # Fire-and-forget token accounting (never blocks response)
-            if result is not None:
+            # Fire-and-forget token accounting (never blocks response). Flag-gated.
+            if result is not None and self.config.token_accounting_enabled:
                 asyncio.create_task(self._record_recall_tokens(bank_id, result))
 
             # MemSense recall cache — store result on miss

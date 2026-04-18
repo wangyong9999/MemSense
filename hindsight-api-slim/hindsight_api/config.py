@@ -381,6 +381,9 @@ ENV_RECALL_CACHE_FUZZY_THRESHOLD = "HINDSIGHT_API_RECALL_CACHE_FUZZY_THRESHOLD"
 ENV_RETAIN_POST_EXTRACTION_ENABLED = "HINDSIGHT_API_RETAIN_POST_EXTRACTION_ENABLED"
 ENV_RETAIN_FACT_FORMAT_CLEAN_ENABLED = "HINDSIGHT_API_RETAIN_FACT_FORMAT_CLEAN_ENABLED"
 
+# MemSense token accounting (writes to token_usage table, surfaces at /token-usage)
+ENV_TOKEN_ACCOUNTING_ENABLED = "HINDSIGHT_API_TOKEN_ACCOUNTING_ENABLED"
+
 # Database migrations
 ENV_RUN_MIGRATIONS_ON_STARTUP = "HINDSIGHT_API_RUN_MIGRATIONS_ON_STARTUP"
 
@@ -1051,6 +1054,9 @@ class HindsightConfig:
     retain_post_extraction_enabled: bool
     retain_fact_format_clean_enabled: bool
 
+    # MemSense token accounting
+    token_accounting_enabled: bool
+
     # Database migrations
     run_migrations_on_startup: bool
 
@@ -1551,6 +1557,8 @@ class HindsightConfig:
             # MemSense retain post-extraction enrichment
             retain_post_extraction_enabled=os.getenv(ENV_RETAIN_POST_EXTRACTION_ENABLED, "false").lower() == "true",
             retain_fact_format_clean_enabled=os.getenv(ENV_RETAIN_FACT_FORMAT_CLEAN_ENABLED, "false").lower() == "true",
+            # MemSense token accounting
+            token_accounting_enabled=os.getenv(ENV_TOKEN_ACCOUNTING_ENABLED, "false").lower() == "true",
             # Retain settings
             retain_max_completion_tokens=int(
                 os.getenv(ENV_RETAIN_MAX_COMPLETION_TOKENS, str(DEFAULT_RETAIN_MAX_COMPLETION_TOKENS))
