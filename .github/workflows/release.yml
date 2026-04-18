@@ -265,6 +265,7 @@ jobs:
     permissions:
       contents: read
       packages: write
+      id-token: write # for cosign keyless OIDC signing
     strategy:
       matrix:
         include:
@@ -361,6 +362,7 @@ jobs:
 
     # Build multi-platform and push to release tags
     - name: Build and push release images
+      id: build
       uses: docker/build-push-action@v7
       with:
         context: .
@@ -371,6 +373,50 @@ jobs:
         platforms: linux/amd64,linux/arm64
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
+
+    # Supply-chain hardening (additive — failures here do not block the push,
+    # but scan output and signatures are attached to the release).
+
+    - name: Install cosign
+      uses: sigstore/cosign-installer@v3
+
+    - name: Sign pushed image (keyless OIDC)
+      env:
+        COSIGN_YES: "true"
+        DIGEST: ${{ steps.build.outputs.digest }}
+        IMAGE: ghcr.io/${{ github.repository_owner }}/${{ matrix.image_name }}
+      run: |
+        set -euo pipefail
+        cosign sign "${IMAGE}@${DIGEST}"
+
+    - name: Install syft
+      uses: anchore/sbom-action/download-syft@v0
+
+    - name: Generate SBOM (SPDX JSON) for pushed image
+      env:
+        DIGEST: ${{ steps.build.outputs.digest }}
+        IMAGE: ghcr.io/${{ github.repository_owner }}/${{ matrix.image_name }}
+      run: |
+        set -euo pipefail
+        SAFE_NAME=$(echo "${{ matrix.image_name }}${{ matrix.tag_suffix }}" | tr '/' '-')
+        syft "${IMAGE}@${DIGEST}" -o spdx-json > "sbom-${SAFE_NAME}.spdx.json"
+
+    - name: Upload SBOM artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: sbom-${{ matrix.image_name }}${{ matrix.tag_suffix }}
+        path: sbom-*.spdx.json
+        retention-days: 30
+
+    - name: Scan pushed image with Trivy (warn-only)
+      uses: aquasecurity/trivy-action@0.28.0
+      continue-on-error: true
+      with:
+        image-ref: ghcr.io/${{ github.repository_owner }}/${{ matrix.image_name }}@${{ steps.build.outputs.digest }}
+        format: table
+        severity: HIGH,CRITICAL
+        ignore-unfixed: true
+        exit-code: 0 # warn-only; flip to 1 in a later release once baseline is stable
 
   release-helm-chart:
     runs-on: ubuntu-latest
@@ -460,6 +506,13 @@ jobs:
         name: helm-chart
         path: ./artifacts/helm-chart
 
+    - name: Download SBOMs (all container images)
+      uses: actions/download-artifact@v8
+      with:
+        pattern: sbom-*
+        path: ./artifacts/sboms
+        merge-multiple: true
+
     - name: Prepare release assets
       run: |
         mkdir -p release-assets
@@ -480,6 +533,8 @@ jobs:
         cp artifacts/rust-cli-darwin-arm64/hindsight-darwin-arm64 release-assets/ || true
         # Helm chart
         cp artifacts/helm-chart/*.tgz release-assets/ || true
+        # SBOMs (one per container image)
+        cp artifacts/sboms/*.spdx.json release-assets/ 2>/dev/null || true
         ls -la release-assets/
 
     - name: Create GitHub Release
