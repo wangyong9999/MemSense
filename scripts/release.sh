@@ -62,6 +62,21 @@ if git rev-parse "v$VERSION" >/dev/null 2>&1; then
     exit 1
 fi
 
+# Verify the docs changelog has an entry for this version. The entry format
+# is "## [X.Y.Z](..." in hindsight-docs/src/pages/changelog/index.md — the
+# root CHANGELOG.md is only a pointer.
+CHANGELOG_FILE="hindsight-docs/src/pages/changelog/index.md"
+if [ -f "$CHANGELOG_FILE" ]; then
+    if ! grep -qE "^## \\[${VERSION}\\]" "$CHANGELOG_FILE"; then
+        print_error "No changelog entry found for $VERSION in $CHANGELOG_FILE"
+        print_info "Add a '## [$VERSION](...)' section with Features/Improvements/Bug Fixes before releasing."
+        exit 1
+    fi
+    print_info "Changelog entry for $VERSION verified."
+else
+    print_warn "Docs changelog not found at $CHANGELOG_FILE — skipping changelog check."
+fi
+
 print_info "Updating version in all components..."
 
 # Update Python packages (integrations are versioned independently via scripts/release-integration.sh)

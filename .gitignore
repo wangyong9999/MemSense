@@ -56,8 +56,8 @@ hindsight-clients/rust/target
 !.claude/skills/
 whats-next.md
 TASK.md
-# Changelog is now tracked in hindsight-docs/src/pages/changelog.md
-# CHANGELOG.md
+# Changelog entries live in hindsight-docs/src/pages/changelog/index.md;
+# the repo-root CHANGELOG.md is a short pointer and IS tracked.
 
 blog-post*
 
