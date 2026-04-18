@@ -6,6 +6,38 @@ import PageHero from '@site/src/components/PageHero';
 
 <PageHero title="Changelog" subtitle="User-facing changes only. Internal maintenance and infrastructure updates are omitted." />
 
+## [0.5.0](https://github.com/vectorize-io/hindsight/releases/tag/v0.5.0)
+
+**Features**
+
+- Added an optional retain post-extraction stage that corrects LLM ±1/±2-week date miscounts against the session date using `dateparser`, and restores specific nouns (product, place, game, book names) that concise extraction generalized away. Flag-gated via `HINDSIGHT_API_RETAIN_POST_EXTRACTION_ENABLED` (default off). ([`c3ade150`](https://github.com/vectorize-io/hindsight/commit/c3ade150))
+- Added an independent retain fact-format cleanup that strips redundant `| When:` metadata from fact text (duplicate of `occurred_start`) while preserving `| Involving:` per-fact actor attribution. Flag-gated via `HINDSIGHT_API_RETAIN_FACT_FORMAT_CLEAN_ENABLED` (default off). ([`7dfef6e0`](https://github.com/vectorize-io/hindsight/commit/7dfef6e0), [`fc7b7b4c`](https://github.com/vectorize-io/hindsight/commit/fc7b7b4c))
+- Added configurable `retain_mission` (`HINDSIGHT_API_RETAIN_MISSION`) to inject custom precision-preservation instructions into the extraction prompt without switching extraction mode. ([`7f5b8ca9`](https://github.com/vectorize-io/hindsight/commit/7f5b8ca9))
+- Added an in-memory recall result cache with Tier 0 exact match and Tier 1 fuzzy Jaccard on stopword-filtered query tokens. Per-bank generation counter for O(1) invalidation on retain/delete. Flag-gated via `HINDSIGHT_API_RECALL_CACHE_ENABLED` (default off). ([`2aba2d59`](https://github.com/vectorize-io/hindsight/commit/2aba2d59), [`b8412bac`](https://github.com/vectorize-io/hindsight/commit/b8412bac))
+- Added `HINDSIGHT_DOTENV_PATH` to load configuration from a custom `.env` file path. ([`8208148c`](https://github.com/vectorize-io/hindsight/commit/8208148c))
+- Bank template import/export is now available through the control plane Template Hub. ([`30a319a6`](https://github.com/vectorize-io/hindsight/commit/30a319a6))
+- Control plane gained a Constellation view with Pretext canvas rendering for entity/memory visualisation. ([`36783df3`](https://github.com/vectorize-io/hindsight/commit/36783df3))
+- `list` / `get` mental-model endpoints accept a `detail` parameter to control response verbosity. ([`8d1bfbbd`](https://github.com/vectorize-io/hindsight/commit/8d1bfbbd))
+- Added token-accounting fields to retain/recall/reflect responses for per-request usage measurement. ([`ff09483c`](https://github.com/vectorize-io/hindsight/commit/ff09483c))
+- Added AutoGen framework integration. ([`a757765a`](https://github.com/vectorize-io/hindsight/commit/a757765a))
+- Added Paperclip TypeScript integration. ([`81441ee9`](https://github.com/vectorize-io/hindsight/commit/81441ee9))
+- OpenClaw: retain calls are now buffered in a JSONL queue so external API hiccups no longer drop memories. ([`087545cc`](https://github.com/vectorize-io/hindsight/commit/087545cc))
+
+**Improvements**
+
+- Consolidation now produces higher-quality observations via structured processing rules. ([`6f173b10`](https://github.com/vectorize-io/hindsight/commit/6f173b10))
+
+**Bug Fixes**
+
+- Retain: streaming retain pipeline regressions resolved (25 tests re-green). ([`7415ebff`](https://github.com/vectorize-io/hindsight/commit/7415ebff))
+- Retain: normalized experience fact types are now preserved through the pipeline. ([`9cfdd464`](https://github.com/vectorize-io/hindsight/commit/9cfdd464))
+- Retain: `detail_preservation` now uses word-boundary matching instead of substring matching, preventing false positives like `"hat"` matching inside `"that"`/`"what"`. Dictionary pruned of short tokens with high false-positive tails. ([`fc7b7b4c`](https://github.com/vectorize-io/hindsight/commit/fc7b7b4c))
+- Retain: `date_validation` chunk-path corrections are now restricted to plausible ±1/±2-week miscount diffs, eliminating wrong attributions from unrelated temporal expressions in the same chunk. Added a 21-day cap on the fact-text path. ([`cf69f666`](https://github.com/vectorize-io/hindsight/commit/cf69f666))
+- API: `DELETE /memories` no longer drops the bank profile along with its memories. ([`26a64cc0`](https://github.com/vectorize-io/hindsight/commit/26a64cc0))
+- Embed: stale daemon processes on the target port are now cleared on startup instead of failing. ([`7d6c570a`](https://github.com/vectorize-io/hindsight/commit/7d6c570a))
+- DB: per-bank vector index creation now respects the configured vector extension. ([`4fd7c5d1`](https://github.com/vectorize-io/hindsight/commit/4fd7c5d1))
+- Control plane: timeline group sort is now numeric-by-date instead of lexicographic. ([`f3f2c6b0`](https://github.com/vectorize-io/hindsight/commit/f3f2c6b0))
+
 ## [0.4.22](https://github.com/vectorize-io/hindsight/releases/tag/v0.4.22)
 
 **Features**
