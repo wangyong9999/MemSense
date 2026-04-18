@@ -277,6 +277,39 @@ client.reflect(bank_id="my-bank", query="What should I know about Alice?")
 
 ---
 
+## Repository Layout
+
+| Path | What lives here |
+|---|---|
+| `hindsight-api-slim/` | Core FastAPI server + memory engine (primary codebase) |
+| `hindsight-api/` | `api-slim` + embedded local embedding/reranker models |
+| `hindsight-all-slim/` · `hindsight-all/` | All-in-one bundles (API + control plane, `-slim` skips local ML) |
+| `hindsight-control-plane/` | Next.js admin UI |
+| `hindsight-cli/` | Rust CLI |
+| `hindsight-clients/` | Generated SDKs (Python, TypeScript, Rust) |
+| `hindsight-embed/` | Local embedding / reranker models |
+| `hindsight-integrations/` | Framework adapters: LiteLLM, CrewAI, LangGraph, Pydantic AI, AG2, Claude Code, Codex, Hermes, OpenClaw, etc. |
+| `hindsight-docs/` | Docusaurus docs site (published at hindsight.vectorize.io) |
+| `hindsight-dev/` | Internal dev tools + benchmarks (not shipped) |
+| `docker/` | Dockerfiles: `standalone` (release target), `pg_textsearch`, `timescale` |
+| `helm/hindsight/` | Helm chart |
+| `monitoring/` | Grafana dashboards |
+| `scripts/` | Dev, release, and benchmark scripts |
+
+## Compatibility
+
+| Component | Supported versions | Notes |
+|---|---|---|
+| Python | 3.11, 3.12, 3.13, 3.14 | CI matrix builds on all four |
+| Node.js | 20 LTS (22 for newer integrations) | Required for control plane and SDK builds |
+| PostgreSQL | 17 | 16 likely works but not in CI |
+| pgvector | ≥ 0.7 | Embedded postgres image ships a pinned build; external instances must install the extension |
+| OS (runtime) | linux/amd64, linux/arm64 | Docker images are multi-arch |
+| OS (dev) | Linux, macOS (Intel + Apple Silicon), Windows | Windows runs natively without Docker |
+| Kubernetes | 1.27+ | Helm chart tested on recent EKS/GKE |
+
+---
+
 ## Resources
 
 **Documentation:** 
