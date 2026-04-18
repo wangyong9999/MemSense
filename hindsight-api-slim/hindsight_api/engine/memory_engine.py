@@ -641,6 +641,11 @@ class MemoryEngine(MemoryEngineInterface):
             tenant_extension = DefaultTenantExtension(config={})
         self._tenant_extension = tenant_extension
 
+    def _invalidate_recall_cache(self, bank_id: str | None) -> None:
+        """MemSense hook — invoked by any code path that mutates a bank."""
+        if self._recall_cache is not None and bank_id:
+            self._recall_cache.invalidate_bank(bank_id)
+
     @property
     def audit_logger(self) -> AuditLogger:
         """The audit logger for feature usage tracking."""
@@ -2358,9 +2363,7 @@ class MemoryEngine(MemoryEngineInterface):
                 # Log but don't fail the retain - consolidation is non-critical
                 logger.warning(f"Failed to submit consolidation task for bank {bank_id}: {e}")
 
-        # MemSense recall cache — invalidate bank after mutation
-        if self._recall_cache is not None:
-            self._recall_cache.invalidate_bank(bank_id)
+        self._invalidate_recall_cache(bank_id)
 
         if return_usage:
             return result, total_usage
@@ -4010,9 +4013,7 @@ class MemoryEngine(MemoryEngineInterface):
                     f"Failed to submit consolidation after memory deletion for bank {bank_id_for_consolidation}: {e}"
                 )
 
-        # MemSense recall cache — invalidate bank after deletion
-        if self._recall_cache is not None and bank_id_for_consolidation:
-            self._recall_cache.invalidate_bank(bank_id_for_consolidation)
+        self._invalidate_recall_cache(bank_id_for_consolidation)
 
         return result
 
@@ -4143,9 +4144,7 @@ class MemoryEngine(MemoryEngineInterface):
             except Exception as e:
                 logger.warning(f"Failed to submit consolidation after bank deletion for bank {bank_id}: {e}")
 
-        # MemSense recall cache — invalidate bank after deletion
-        if self._recall_cache is not None:
-            self._recall_cache.invalidate_bank(bank_id)
+        self._invalidate_recall_cache(bank_id)
 
         return result
 
