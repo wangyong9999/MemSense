@@ -33,6 +33,8 @@ nltk_data/
 
 # Large benchmark datasets (will be downloaded automatically)
 **/longmemeval_s_cleaned.json
+# Local pre-correction dataset snapshots (kept for comparison, not for history)
+**/*.json.original
 
 # Debug logs
 logs/
