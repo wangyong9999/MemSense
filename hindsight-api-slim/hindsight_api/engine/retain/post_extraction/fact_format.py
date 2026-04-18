@@ -1,20 +1,27 @@
 """
 Post-extraction fact text format cleaning.
 
-Strips pipe-delimited metadata suffixes (| When: | Involving: | why)
-from fact text, keeping only the core 'what' statement in natural language.
+Strips only the `| When: ...` segment from fact text. The `When:` value is
+fully duplicated by the structured `occurred_start` / `occurred_end` fields
+which are serialized alongside the fact text to the answer LLM, so removing
+the inline pipe segment has zero information loss.
 
-The stripped information is NOT lost — it is already stored in dedicated
-fields:
-  - occurred_start/end → dates
-  - entities → who/people
-  - text_signals → BM25 keywords
+The `| Involving: ...` segment is KEPT because it is the only per-fact
+actor attribution available to the answer LLM — the top-level `entities`
+dict in the recall response is aggregated across all results and does not
+preserve which entities belong to which fact.
 
-This reduces fact text token overhead by ~35-41%, improving the
-signal-to-noise ratio when 100+ facts are sent to the answer LLM.
+`| Where: ...` is also kept because there is no dedicated location field
+to duplicate it (would require a separate evaluation before removal).
 
-When the 'what' part lacks a subject (entity name), the primary entity
-is appended in parentheses to maintain readability.
+Empirical basis:
+  - MiniMax M2.7 conv-42/43 ablation: original all-strip was +3 on conv-43
+    but also coincided with regressions elsewhere.
+  - GLM-5 full 10-conv run (2026-04-17): original all-strip showed Cat1
+    Multi-hop -1.42pp because per-fact `| Involving:` attribution was lost.
+  - `occurred_start` is already in the JSON payload sent to the answer LLM
+    (see `ScoredResult.to_dict` and `locomo_benchmark.generate_answer`),
+    making `| When:` inline text strictly redundant.
 
 Controlled by independent feature flag:
   HINDSIGHT_API_RETAIN_FACT_FORMAT_CLEAN_ENABLED (default: false)
@@ -27,9 +34,15 @@ import re
 
 logger = logging.getLogger(__name__)
 
-# Patterns for metadata segments after the first pipe
-_PIPE_PREFIX_RE = re.compile(
-    r"\s*\|\s*(?:When:|Involving:|Where:)",
+# Match a ` | When: <content>` segment and its LEADING separator, leaving
+# the trailing separator (and its preceding whitespace) to the next segment.
+# Lazy match + lookahead ensures we stop at either the space-before-next-pipe
+# or end-of-string, so middle segments don't collapse surrounding spaces.
+#
+# Example: "X | When: Y, Z | Involving: Q" → match " | When: Y, Z"
+#                                            → result "X | Involving: Q"
+_WHEN_SEGMENT_RE = re.compile(
+    r"\s*\|\s*When:[^|]*?(?=\s+\||\s*$)",
     re.IGNORECASE,
 )
 
@@ -37,10 +50,10 @@ _PIPE_PREFIX_RE = re.compile(
 def clean_fact_format(
     facts: list,
 ) -> tuple[int, int]:
-    """Strip metadata suffixes from fact text, keep only 'what' part.
+    """Strip only the `| When:` segment from fact text.
 
-    If the 'what' part does not mention any of the fact's entities,
-    appends the primary entity in parentheses to preserve the subject.
+    `| Involving:` and `| Where:` segments are preserved; see module
+    docstring for the rationale.
 
     Args:
         facts: List of ExtractedFact objects (mutated in-place).
@@ -52,39 +65,23 @@ def clean_fact_format(
     cleaned = 0
 
     for fact in facts:
-        pipe_idx = fact.fact_text.find(" | ")
-        if pipe_idx <= 0:
+        if " | " not in fact.fact_text:
             continue
 
         checked += 1
-        what_part = fact.fact_text[:pipe_idx].strip()
 
-        if not what_part:
+        new_text = _WHEN_SEGMENT_RE.sub("", fact.fact_text).rstrip()
+
+        if new_text == fact.fact_text.rstrip():
             continue
 
-        # Check if 'what' part mentions any entity
-        what_lower = what_part.lower()
-        entities = fact.entities if hasattr(fact, "entities") and fact.entities else []
-        entity_names = []
-        for e in entities:
-            if isinstance(e, str):
-                entity_names.append(e)
-            elif hasattr(e, "name"):
-                entity_names.append(e.name)
+        if not new_text:
+            continue
 
-        has_entity_in_what = any(name.lower() in what_lower for name in entity_names if len(name) >= 2)
-
-        if has_entity_in_what or not entity_names:
-            # What part already has the subject, or no entities to add
-            fact.fact_text = what_part
-        else:
-            # Append primary entity so the fact isn't subjectless
-            primary = entity_names[0]
-            fact.fact_text = f"{what_part} ({primary})"
-
+        fact.fact_text = new_text
         cleaned += 1
 
     if cleaned > 0:
-        logger.debug("Fact format cleaned: %d/%d facts simplified", cleaned, checked)
+        logger.debug("Fact format cleaned: %d/%d facts simplified (When: stripped)", cleaned, checked)
 
     return checked, cleaned

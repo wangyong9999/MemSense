@@ -40,7 +40,6 @@ _GENERIC_CATEGORIES: dict[str, list[str]] = {
         "skirt",
         "sweater",
         "coat",
-        "hat",
         "scarf",
         "boots",
         "sneakers",
@@ -66,10 +65,9 @@ _GENERIC_CATEGORIES: dict[str, list[str]] = {
         "burger",
         "muffin",
         "croissant",
-        "tart",
     ],
     "recipe": ["roasted chicken", "mediterranean"],
-    "drink": ["coffee", "latte", "espresso", "smoothie", "tea"],
+    "drink": ["coffee", "latte", "espresso", "smoothie"],
     "place": ["phuket", "bali", "alaska", "san francisco"],
     "sport": ["surfing", "yoga", "basketball", "boxing", "hiking"],
     "music": ["beethoven", "bach", "mozart", "chopin"],
@@ -105,23 +103,33 @@ def _extract_chunk_text(chunk_text: str) -> str:
 def _find_specific_terms_in_text(text: str) -> list[tuple[str, str]]:
     """Find specific terms in text that match known categories.
 
+    Uses word-boundary matching to avoid false positives like "hat" matching
+    inside "that"/"what"/"chat" or "tea" inside "steak"/"team"/"teach".
+
     Returns list of (term, category) tuples.
     """
     text_lower = text.lower()
     found = []
     # Check multi-word terms first (longer matches take priority)
     for term, category in sorted(_SPECIFIC_TERMS.items(), key=lambda x: len(x[0]), reverse=True):
-        if term in text_lower:
+        pattern = rf"\b{re.escape(term)}\b"
+        if re.search(pattern, text_lower):
             found.append((term, category))
     return found
 
 
 def _terms_share_sentence(text: str, term: str, fact_keywords: list[str]) -> bool:
-    """Check if term and any fact keyword appear in the same sentence."""
+    """Check if term and any fact keyword appear in the same sentence.
+
+    Uses word-boundary matching for the term (same reason as
+    _find_specific_terms_in_text). Fact keywords are matched as substrings
+    since they are already meaningful tokens extracted from fact_text.
+    """
+    term_pattern = rf"\b{re.escape(term.lower())}\b"
     sentences = re.split(r"[.!?]+", text)
     for sentence in sentences:
         sentence_lower = sentence.lower()
-        if term.lower() in sentence_lower:
+        if re.search(term_pattern, sentence_lower):
             if any(kw.lower() in sentence_lower for kw in fact_keywords):
                 return True
     return False

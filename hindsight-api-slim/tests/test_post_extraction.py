@@ -499,6 +499,71 @@ class TestDetailPreservation:
 
         assert "hoodie" in fact.fact_text.lower()
 
+    def test_no_false_positive_on_common_substrings(self):
+        """Regression: chunks with 'that'/'what'/'chat' must not trigger
+        'hat' enrichment. Prior substring bug produced 317/404 garbage
+        '(specifically: Hat)' suffixes on GLM-5 LoCoMo ingest.
+        """
+        from hindsight_api.engine.retain.post_extraction.detail_preservation import (
+            preserve_details,
+        )
+
+        fact = FakeFact(
+            fact_text="Melanie loves live music | Involving: Melanie",
+            entities=["Melanie"],
+            chunk_index=0,
+        )
+        # Chunk packed with substrings that used to false-match short terms:
+        #   'hat' in that/what/chat, 'tea' in steak/team/teach, 'tart' in start/restart
+        chunk = FakeChunk(
+            chunk_text=("That was amazing! What songs did you hear? I heard the team started a chat about the music."),
+            chunk_index=0,
+        )
+
+        checked, enriched = preserve_details([fact], [chunk])
+
+        # No bogus enrichment; fact text is unchanged
+        assert enriched == 0
+        assert "specifically:" not in fact.fact_text.lower()
+        assert "Hat" not in fact.entities
+        assert "Tea" not in fact.entities
+        assert "Tart" not in fact.entities
+
+    def test_word_boundary_literal_hat_still_works(self):
+        """After boundary fix, a literal 'hat' word still enriches clothing facts.
+
+        Guards against over-correction: the boundary fix should reject
+        'that'/'what' but still accept the real word 'hat'. Note: 'hat' was
+        pruned from the dictionary for safety, so this test uses 'hoodie'
+        with explicit boundary context to verify the boundary machinery.
+        """
+        from hindsight_api.engine.retain.post_extraction.detail_preservation import (
+            _find_specific_terms_in_text,
+        )
+
+        # Positive: boundary match on real word
+        terms = _find_specific_terms_in_text("Gina wore a hoodie today.")
+        assert any(t == "hoodie" for t, _ in terms)
+
+        # Negative: substring inside other word
+        terms = _find_specific_terms_in_text("Gina has a hoodies collection")
+        assert any(t == "hoodie" for t, _ in terms) is False or all(
+            t != "hoodie" or " hoodie " in " Gina has a hoodies collection " for t, _ in terms
+        )
+
+    def test_pruned_short_terms_not_in_dictionary(self):
+        """Regression guard: 'hat'/'tea'/'tart' were removed from dictionary
+        because even with word boundaries their information value is too low
+        for the false-positive risk in short-sentence facts.
+        """
+        from hindsight_api.engine.retain.post_extraction.detail_preservation import (
+            _SPECIFIC_TERMS,
+        )
+
+        assert "hat" not in _SPECIFIC_TERMS
+        assert "tea" not in _SPECIFIC_TERMS
+        assert "tart" not in _SPECIFIC_TERMS
+
 
 # ===================================================================
 # Unified enrichment tests
@@ -765,45 +830,77 @@ class TestLoCoMoDetailRegressions:
 
 
 class TestFactFormatClean:
-    """Tests for pipe-delimited metadata stripping."""
+    """Tests for selective pipe-delimited metadata stripping.
 
-    def test_strips_when_involving_why(self):
-        """Full metadata suffix should be stripped."""
+    Semantics (as of 2026-04-18): only ` | When: ...` segments are stripped,
+    because `occurred_start` / `occurred_end` carry the same information to
+    the answer LLM. `| Involving:` is preserved — it is the only per-fact
+    actor attribution visible to the answer LLM. `| Where:` is preserved
+    pending dedicated location-field evaluation.
+    """
+
+    def test_strips_when_keeps_involving(self):
+        """When: segment removed, Involving: segment preserved."""
         from hindsight_api.engine.retain.post_extraction.fact_format import clean_fact_format
 
         fact = FakeFact(
-            fact_text="Jolene finished a project | When: Last week | Involving: Jolene | Big milestone",
+            fact_text="Jolene finished a project | When: Last week | Involving: Jolene",
             entities=["Jolene"],
         )
         checked, cleaned = clean_fact_format([fact])
         assert cleaned == 1
-        assert fact.fact_text == "Jolene finished a project"
-        assert "|" not in fact.fact_text
+        assert fact.fact_text == "Jolene finished a project | Involving: Jolene"
 
-    def test_preserves_what_with_entity(self):
-        """When 'what' already mentions the entity, no suffix added."""
+    def test_strips_when_at_end(self):
+        """When: segment at the end of fact_text is removed cleanly."""
         from hindsight_api.engine.retain.post_extraction.fact_format import clean_fact_format
 
         fact = FakeFact(
-            fact_text="Audrey's favorite recipe is Chicken Pot Pie | Involving: Audrey | Family tradition",
-            entities=["Audrey"],
+            fact_text="Alice visited Paris | When: 2023-07-14",
+            entities=["Alice"],
+        )
+        checked, cleaned = clean_fact_format([fact])
+        assert cleaned == 1
+        assert fact.fact_text == "Alice visited Paris"
+
+    def test_strips_when_in_middle(self):
+        """When: segment in the middle leaves neighbours intact."""
+        from hindsight_api.engine.retain.post_extraction.fact_format import clean_fact_format
+
+        fact = FakeFact(
+            fact_text="Alice visited Paris | When: 2023-07-14 | Involving: Alice, Bob | Where: Louvre",
+            entities=["Alice", "Bob"],
+        )
+        checked, cleaned = clean_fact_format([fact])
+        assert cleaned == 1
+        assert fact.fact_text == "Alice visited Paris | Involving: Alice, Bob | Where: Louvre"
+
+    def test_preserves_where(self):
+        """| Where: is preserved (no dedicated duplicate field)."""
+        from hindsight_api.engine.retain.post_extraction.fact_format import clean_fact_format
+
+        fact = FakeFact(
+            fact_text="Alice ate dinner | When: last Friday | Where: home",
+            entities=["Alice"],
         )
         clean_fact_format([fact])
-        assert fact.fact_text == "Audrey's favorite recipe is Chicken Pot Pie"
+        assert "Where: home" in fact.fact_text
+        assert "When:" not in fact.fact_text
 
-    def test_appends_entity_when_missing_from_what(self):
-        """When 'what' has no entity mention, primary entity is appended."""
+    def test_no_when_segment_no_change(self):
+        """Facts without a When: segment are left untouched."""
         from hindsight_api.engine.retain.post_extraction.fact_format import clean_fact_format
 
         fact = FakeFact(
-            fact_text="Passed the adoption interviews last Friday | Involving: Caroline | Significant step",
+            fact_text="Caroline joined a mentorship program | Involving: Caroline",
             entities=["Caroline"],
         )
-        clean_fact_format([fact])
-        assert fact.fact_text == "Passed the adoption interviews last Friday (Caroline)"
+        checked, cleaned = clean_fact_format([fact])
+        assert cleaned == 0
+        assert fact.fact_text == "Caroline joined a mentorship program | Involving: Caroline"
 
     def test_no_pipe_no_change(self):
-        """Facts without pipes are left unchanged."""
+        """Facts without any pipes are left unchanged."""
         from hindsight_api.engine.retain.post_extraction.fact_format import clean_fact_format
 
         fact = FakeFact(fact_text="Simple fact without metadata")
@@ -811,19 +908,8 @@ class TestFactFormatClean:
         assert cleaned == 0
         assert fact.fact_text == "Simple fact without metadata"
 
-    def test_empty_entities_no_suffix(self):
-        """When there are no entities, just strip the metadata."""
-        from hindsight_api.engine.retain.post_extraction.fact_format import clean_fact_format
-
-        fact = FakeFact(
-            fact_text="It was a sunny day | Weather observation",
-            entities=[],
-        )
-        clean_fact_format([fact])
-        assert fact.fact_text == "It was a sunny day"
-
-    def test_token_savings(self):
-        """Verify actual token reduction on realistic facts."""
+    def test_token_savings_modest(self):
+        """With only When: stripped, savings are modest but non-trivial."""
         from hindsight_api.engine.retain.post_extraction.fact_format import clean_fact_format
 
         facts = [
@@ -832,99 +918,67 @@ class TestFactFormatClean:
                 entities=["Jolene"],
             ),
             FakeFact(
-                fact_text="Deborah visited her mother's old house | When: Last week | Involving: Deborah, Deborah's mother | Holds memories",
+                fact_text="Deborah visited her mother's old house | When: Last week | Involving: Deborah, Deborah's mother",
                 entities=["Deborah"],
-            ),
-            FakeFact(
-                fact_text="Caroline joined a mentorship program | Involving: Caroline | Finding it rewarding",
-                entities=["Caroline"],
             ),
         ]
         before_len = sum(len(f.fact_text) for f in facts)
         clean_fact_format(facts)
         after_len = sum(len(f.fact_text) for f in facts)
 
-        savings = (before_len - after_len) / before_len * 100
-        assert savings > 30  # Should save at least 30%
+        assert after_len < before_len
+        # All Involving: segments preserved
+        for f in facts:
+            assert "Involving:" in f.fact_text
+            assert "When:" not in f.fact_text
 
-    def test_multiple_entities_uses_first(self):
-        """When what lacks entity, uses the first one from the list."""
+    def test_case_insensitive_when(self):
+        """When: detection is case-insensitive."""
         from hindsight_api.engine.retain.post_extraction.fact_format import clean_fact_format
 
         fact = FakeFact(
-            fact_text="Had a great conversation about life | Involving: Deborah, Anna",
-            entities=["Deborah", "Anna"],
+            fact_text="Alice cooked dinner | when: yesterday | Involving: Alice",
+            entities=["Alice"],
         )
         clean_fact_format([fact])
-        assert fact.fact_text == "Had a great conversation about life (Deborah)"
+        assert "when:" not in fact.fact_text.lower()
+        assert "Involving: Alice" in fact.fact_text
 
 
 class TestFactFormatCleanRegression:
-    """Regression tests from actual LoCoMo facts."""
+    """Regression tests anchored to historical behaviour."""
 
-    def test_conv48_renewable_energy(self):
-        """A1 case: LLM ignored this fact. Format cleaning should make it cleaner."""
+    def test_cat1_multihop_attribution_preserved(self):
+        """GLM-5 Cat1 -1.42pp regression was caused by stripping | Involving:.
+        This test pins the fix: after cleaning, actor attribution must remain
+        in fact_text so the answer LLM can chain facts across sessions.
+        """
         from hindsight_api.engine.retain.post_extraction.fact_format import clean_fact_format
 
         fact = FakeFact(
-            fact_text=(
-                "Jolene is interested in two projects: developing renewable energy (solar) "
-                "to help communities and supplying clean water to those with limited access "
-                "| Involving: Jolene | Align with her beliefs about sustainability"
-            ),
-            entities=["Jolene"],
+            fact_text=("Jolene and her partner played Zelda together | When: 2023-03-12 | Involving: Jolene, Partner"),
+            entities=["Jolene", "Partner"],
         )
         clean_fact_format([fact])
-        assert "renewable energy" in fact.fact_text
-        assert "Involving" not in fact.fact_text
-        assert "sustainability" not in fact.fact_text
-
-    def test_conv44_chicken_pot_pie(self):
-        """A2 case: competing facts. Clean format reduces ambiguity."""
-        from hindsight_api.engine.retain.post_extraction.fact_format import clean_fact_format
-
-        facts = [
-            FakeFact(
-                fact_text="Audrey's favorite recipe is Chicken Pot Pie, a family recipe passed down for years | Involving: Audrey | Family tradition",
-                entities=["Audrey"],
-            ),
-            FakeFact(
-                fact_text="Audrey's roasted chicken recipe is based on Mediterranean flavors | Involving: Audrey | Comfort food",
-                entities=["Audrey"],
-            ),
-        ]
-        clean_fact_format(facts)
-        # Both should be clean and distinguishable
-        assert "Chicken Pot Pie" in facts[0].fact_text
-        assert "Mediterranean" in facts[1].fact_text
-        assert "|" not in facts[0].fact_text
-        assert "|" not in facts[1].fact_text
+        # The multi-hop-critical attribution survives
+        assert "Involving: Jolene, Partner" in fact.fact_text
+        # But the redundant When: is gone (duplicate with occurred_start)
+        assert "When:" not in fact.fact_text
 
     def test_enrichment_integration_with_format_flag(self):
-        """Enrichment respects independent format flag."""
+        """Enrichment entry point respects independent format flag."""
         from hindsight_api.engine.retain.post_extraction.enrichment import enrich_extracted_facts
 
-        fact = FakeFact(
-            fact_text="A fact with metadata | Involving: Someone | Reason",
-            entities=["Someone"],
-            chunk_index=0,
-        )
-        chunk = FakeChunk(chunk_text="Some source text", chunk_index=0)
-
-        # With format clean disabled (default)
-        stats1 = enrich_extracted_facts([fact], [chunk], fact_format_clean_enabled=False)
-        # fact should still have pipe
-        # (can't check because other enrichments may not modify it)
-
-        # With format clean enabled
         fact2 = FakeFact(
-            fact_text="Another fact | Involving: Person | Context",
+            fact_text="A fact with date | When: 2023-07-14 | Involving: Person",
             entities=["Person"],
             chunk_index=0,
         )
+        chunk = FakeChunk(chunk_text="Some source text", chunk_index=0)
         stats2 = enrich_extracted_facts([fact2], [chunk], fact_format_clean_enabled=True)
         assert stats2.get("format_cleaned", 0) >= 1
-        assert "|" not in fact2.fact_text
+        assert "When:" not in fact2.fact_text
+        assert "Involving: Person" in fact2.fact_text
 
     def test_config_flag_independent(self):
         """Format clean flag is independent from post_extraction flag."""

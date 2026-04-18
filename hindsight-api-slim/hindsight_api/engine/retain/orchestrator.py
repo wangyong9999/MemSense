@@ -391,7 +391,8 @@ async def _extract_and_embed(
         from .post_extraction.enrichment import enrich_extracted_facts
 
         enrichment_stats = enrich_extracted_facts(
-            extracted_facts, chunks,
+            extracted_facts,
+            chunks,
             date_validation_enabled=_cfg.retain_post_extraction_enabled,
             detail_preservation_enabled=_cfg.retain_post_extraction_enabled,
             fact_format_clean_enabled=_cfg.retain_fact_format_clean_enabled,
@@ -405,8 +406,7 @@ async def _extract_and_embed(
             parts.append(f"format={enrichment_stats['format_cleaned']}")
         if parts:
             log_buffer.append(
-                f"  Post-extraction enrichment: {', '.join(parts)} "
-                f"in {enrichment_stats.get('total_time', 0):.3f}s"
+                f"  Post-extraction enrichment: {', '.join(parts)} in {enrichment_stats.get('total_time', 0):.3f}s"
             )
 
     step_start = time.time()

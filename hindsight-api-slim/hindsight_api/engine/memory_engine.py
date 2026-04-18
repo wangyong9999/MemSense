@@ -2529,10 +2529,17 @@ class MemoryEngine(MemoryEngineInterface):
             from .search.recall_cache import RecallCacheKey
 
             _cache_key = RecallCacheKey.build(
-                bank_id, query, fact_type, thinking_budget,
-                max_tokens=max_tokens, tags=tags, tags_match=tags_match,
-                question_date=question_date, include_entities=include_entities,
-                include_chunks=include_chunks, include_source_facts=include_source_facts,
+                bank_id,
+                query,
+                fact_type,
+                thinking_budget,
+                max_tokens=max_tokens,
+                tags=tags,
+                tags_match=tags_match,
+                question_date=question_date,
+                include_entities=include_entities,
+                include_chunks=include_chunks,
+                include_source_facts=include_source_facts,
             )
             _cached = self._recall_cache.get(_cache_key)
             if _cached is None:
