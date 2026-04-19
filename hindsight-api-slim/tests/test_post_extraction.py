@@ -1111,3 +1111,167 @@ class TestPIIRedact:
         finally:
             os.environ.pop("HINDSIGHT_API_RETAIN_PII_REDACT_ENABLED", None)
             clear_config_cache()
+
+
+# ===================================================================
+# Retain-pipeline hardening — cross-step interactions and invariants
+# ===================================================================
+
+
+class TestEnrichmentOrdering:
+    """Lock in the order enrichment steps run so regressions stand out.
+
+    Order: date_validation → detail_preservation → fact_format_clean → pii_redact.
+    PII must run LAST so regex sees the final text after any format cleaning.
+    """
+
+    def test_format_clean_runs_before_pii(self):
+        """| When: ... gets stripped first; remaining text is then scanned for PII."""
+        from hindsight_api.engine.retain.post_extraction.enrichment import (
+            enrich_extracted_facts,
+        )
+
+        fact = FakeFact(
+            fact_text="Call alice@example.com about project | When: yesterday | Involving: Alice",
+        )
+        stats = enrich_extracted_facts(
+            [fact],
+            chunks=[],
+            date_validation_enabled=False,
+            detail_preservation_enabled=False,
+            fact_format_clean_enabled=True,
+            pii_redact_enabled=True,
+        )
+        assert stats.get("format_cleaned") == 1
+        assert stats.get("pii_redacted") == 1
+        assert "When:" not in fact.fact_text
+        assert "[REDACTED:email]" in fact.fact_text
+        assert "Involving: Alice" in fact.fact_text
+
+    def test_all_enrichments_are_idempotent(self):
+        """Running enrichment twice must not double-redact or corrupt."""
+        from hindsight_api.engine.retain.post_extraction.enrichment import (
+            enrich_extracted_facts,
+        )
+
+        fact = FakeFact(fact_text="Ping john@doe.com | When: today")
+        enrich_extracted_facts(
+            [fact],
+            chunks=[],
+            date_validation_enabled=False,
+            detail_preservation_enabled=False,
+            fact_format_clean_enabled=True,
+            pii_redact_enabled=True,
+        )
+        first_pass = fact.fact_text
+
+        enrich_extracted_facts(
+            [fact],
+            chunks=[],
+            date_validation_enabled=False,
+            detail_preservation_enabled=False,
+            fact_format_clean_enabled=True,
+            pii_redact_enabled=True,
+        )
+        assert fact.fact_text == first_pass
+        assert fact.fact_text.count("[REDACTED:email]") == 1
+
+    def test_pii_redact_only_does_nothing_when_format_still_present(self):
+        """Without fact_format_clean, | When: survives — PII redactor still sees it but doesn't touch it."""
+        from hindsight_api.engine.retain.post_extraction.enrichment import (
+            enrich_extracted_facts,
+        )
+
+        fact = FakeFact(fact_text="Alice emailed bob@example.com | When: yesterday")
+        enrich_extracted_facts(
+            [fact],
+            chunks=[],
+            date_validation_enabled=False,
+            detail_preservation_enabled=False,
+            fact_format_clean_enabled=False,
+            pii_redact_enabled=True,
+        )
+        assert "| When: yesterday" in fact.fact_text
+        assert "[REDACTED:email]" in fact.fact_text
+
+    def test_empty_facts_list_is_safe(self):
+        """No facts, all flags on — no crash, empty stats."""
+        from hindsight_api.engine.retain.post_extraction.enrichment import (
+            enrich_extracted_facts,
+        )
+
+        stats = enrich_extracted_facts(
+            [],
+            chunks=[],
+            date_validation_enabled=True,
+            detail_preservation_enabled=True,
+            fact_format_clean_enabled=True,
+            pii_redact_enabled=True,
+        )
+        assert "pii_redacted" not in stats  # skipped because facts empty
+
+
+class TestPIIRedactInteractions:
+    """Edge cases where PII patterns overlap with fact-text structure."""
+
+    def test_pii_in_where_field_redacted(self):
+        """The 'where' field is separate from fact_text; must be redacted too."""
+        from hindsight_api.engine.retain.post_extraction.pii_redact import redact_pii_in_facts
+
+        fact = FakeFact(fact_text="met Alice", where="her office — phone 415-555-1212")
+        checked, redacted = redact_pii_in_facts([fact])
+        assert redacted == 1
+        assert "[REDACTED:phone]" in fact.where
+        assert fact.fact_text == "met Alice"
+
+    def test_fact_text_left_empty_after_total_redaction_does_not_blank(self):
+        """A fact_text that is entirely PII still holds its REDACTED marker — never becomes empty."""
+        from hindsight_api.engine.retain.post_extraction.pii_redact import redact_pii_in_facts
+
+        fact = FakeFact(fact_text="alice@example.com")
+        redact_pii_in_facts([fact])
+        assert fact.fact_text.strip() != ""
+        assert "[REDACTED:email]" in fact.fact_text
+
+    def test_multiple_pii_patterns_coexist(self):
+        """CC + SSN + email in one fact — all redacted, each counted."""
+        from hindsight_api.engine.retain.post_extraction.pii_redact import redact_pii
+
+        text = "Card 4532015112830366 SSN 123-45-6789 email foo@bar.com IP 10.0.0.1"
+        out, n = redact_pii(text)
+        assert out.count("[REDACTED:cc]") == 1
+        assert out.count("[REDACTED:ssn]") == 1
+        assert out.count("[REDACTED:email]") == 1
+        assert out.count("[REDACTED:ip]") == 1
+        assert n >= 4
+
+    def test_pii_does_not_match_iso_dates(self):
+        """ISO dates like 2024-03-15 must NOT be matched as phone or SSN."""
+        from hindsight_api.engine.retain.post_extraction.pii_redact import redact_pii
+
+        out, n = redact_pii("Occurred on 2024-03-15 at noon")
+        assert n == 0
+        assert "2024-03-15" in out
+
+    def test_pii_preserves_surrounding_text(self):
+        """Redaction is surgical — neighbouring words are intact."""
+        from hindsight_api.engine.retain.post_extraction.pii_redact import redact_pii
+
+        out, _ = redact_pii("Reach Bob at bob@example.com urgently")
+        assert "Reach Bob at" in out
+        assert "urgently" in out
+
+    @pytest.mark.xfail(
+        reason="ExtractedFact.entities list is not scanned for PII — LLM-extracted entities like "
+        "'bob@example.com' slip past the redactor. See planning/FIX_PLAN_HARDENING.md §1.",
+        strict=True,
+    )
+    def test_pii_in_entities_list_is_redacted(self):
+        """Documents the gap: entities field currently bypasses redaction."""
+        from hindsight_api.engine.retain.post_extraction.pii_redact import redact_pii_in_facts
+
+        fact = FakeFact(fact_text="Contact was made.", entities=["Alice", "bob@example.com"])
+        redact_pii_in_facts([fact])
+        joined = ",".join(fact.entities)
+        assert "[REDACTED:email]" in joined
+        assert "bob@example.com" not in joined

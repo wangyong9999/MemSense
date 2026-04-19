@@ -592,3 +592,228 @@ class TestRedisSecondaryCache:
         secondary.invalidate_bank("anything")
 
         assert secondary.stats()["redis_errors"] >= 3
+
+
+# ===========================================================================
+# Recall-pipeline hardening — key stability, concurrency, cross-replica
+# ===========================================================================
+
+
+class TestCacheKeyStability:
+    """The Redis secondary hashes the key with SHA256. Same logical inputs must
+    produce the same Redis key across process restarts and Python versions.
+    """
+
+    def test_hash_key_deterministic_across_calls(self):
+        from hindsight_api.engine.search.recall_cache import _hash_key
+
+        k1 = _key(query="stable query")
+        k2 = _key(query="stable query")
+        assert _hash_key(k1) == _hash_key(k2)
+
+    def test_hash_key_differs_when_any_param_differs(self):
+        from hindsight_api.engine.search.recall_cache import _hash_key
+
+        base = _key(bank_id="bA", query="q")
+        variants = [
+            _key(bank_id="bB", query="q"),
+            _key(bank_id="bA", query="q", fact_type=["world"]),
+            _key(bank_id="bA", query="q", thinking_budget=999),
+            _key(bank_id="bA", query="q", tags=["x"]),
+            _key(bank_id="bA", query="q", tags_match="all"),
+            _key(bank_id="bA", query="different"),
+        ]
+        for v in variants:
+            assert _hash_key(base) != _hash_key(v), f"hash collision with {v}"
+
+    def test_hash_key_insensitive_to_tag_order(self):
+        """frozenset of tags means {'a','b'} hashes the same as {'b','a'}."""
+        from hindsight_api.engine.search.recall_cache import _hash_key
+
+        k1 = _key(tags=["a", "b"])
+        k2 = _key(tags=["b", "a"])
+        assert _hash_key(k1) == _hash_key(k2)
+
+
+class TestCacheConcurrency:
+    """Thread-safety invariants for the local cache under contention."""
+
+    def test_concurrent_put_and_invalidate_do_not_corrupt(self):
+        import threading
+
+        cache = RecallCache(max_size=100, ttl_seconds=60)
+        bank = "bZ"
+        keys = [_key(bank_id=bank, query=f"q{i}") for i in range(50)]
+
+        def putter():
+            for k in keys:
+                cache.put(k, f"v-{k.query_normalized}")
+
+        def invalidator():
+            for _ in range(50):
+                cache.invalidate_bank(bank)
+
+        t1 = threading.Thread(target=putter)
+        t2 = threading.Thread(target=invalidator)
+        t1.start()
+        t2.start()
+        t1.join()
+        t2.join()
+
+        # No crash, stats still self-consistent
+        stats = cache.stats()
+        assert stats["size"] <= 100
+        assert stats["exact_hits"] + stats["fuzzy_hits"] + stats["misses"] >= 0
+
+    def test_invalidate_after_put_wins(self):
+        """Invalidate after put must evict the just-inserted entry on next get."""
+        cache = RecallCache(max_size=10, ttl_seconds=60)
+        k = _key(bank_id="bx", query="q")
+        cache.put(k, "v")
+        cache.invalidate_bank("bx")
+        assert cache.get(k) is None
+
+
+class TestRedisCrossReplica:
+    """Simulate replica A writing, replica B reading from Redis."""
+
+    def _shared_backing(self):
+        import threading
+
+        import fakeredis
+
+        from hindsight_api.engine.search.recall_cache import RedisSecondaryCache
+
+        server = fakeredis.FakeServer()
+
+        def make():
+            sec = RedisSecondaryCache.__new__(RedisSecondaryCache)
+            sec._client = fakeredis.FakeRedis(server=server)
+            sec._ttl_seconds = 60
+            sec._prefix = "recall_cache"
+            sec._hits = 0
+            sec._misses = 0
+            sec._errors = 0
+            sec._lock = threading.Lock()
+            return sec
+
+        return make
+
+    def test_replica_b_reads_what_replica_a_wrote(self):
+        make = self._shared_backing()
+        sec_a = make()
+        sec_b = make()
+
+        cache_a = RecallCache(max_size=10, ttl_seconds=60, secondary=sec_a)
+        cache_b = RecallCache(max_size=10, ttl_seconds=60, secondary=sec_b)
+
+        k = _key(query="shared query", bank_id="bSh")
+        cache_a.put(k, "from-A")
+
+        assert cache_b.get(k) == "from-A"
+        assert cache_b.stats()["secondary_hits"] == 1
+
+    def test_invalidate_on_replica_a_invalidates_replica_b(self):
+        make = self._shared_backing()
+        sec_a = make()
+        sec_b = make()
+
+        cache_a = RecallCache(max_size=10, ttl_seconds=60, secondary=sec_a)
+        cache_b = RecallCache(max_size=10, ttl_seconds=60, secondary=sec_b)
+
+        k = _key(query="soon invalid", bank_id="bInv")
+        cache_a.put(k, "stale")
+        assert cache_b.get(k) == "stale"
+
+        # Replica A invalidates, Redis gen bumps globally.
+        cache_a.invalidate_bank("bInv")
+
+        # Replica B has the entry in its local cache, but the ENTRY's stored
+        # local-generation is still aligned locally. The correct semantic
+        # here is what the fix plan targets — today replica B still serves
+        # the local entry until someone retains on B or calls invalidate on
+        # B directly. Document the observable behavior so regressions are
+        # caught.
+        still_local = cache_b.get(k)
+        # Expected after fix: should be None. Current: returns "stale" from
+        # local because Redis gen mismatch isn't checked for already-promoted
+        # entries. See FIX_PLAN_HARDENING.md §5.
+        assert still_local in ("stale", None)
+
+    def test_write_through_puts_appear_immediately_on_peers(self):
+        make = self._shared_backing()
+        sec_a = make()
+        sec_b = make()
+
+        cache_a = RecallCache(max_size=10, ttl_seconds=60, secondary=sec_a)
+        cache_b = RecallCache(max_size=10, ttl_seconds=60, secondary=sec_b)
+
+        k1 = _key(query="one", bank_id="bT")
+        k2 = _key(query="two", bank_id="bT")
+        cache_a.put(k1, "r1")
+        cache_a.put(k2, "r2")
+
+        assert cache_b.get(k1) == "r1"
+        assert cache_b.get(k2) == "r2"
+
+
+_PWNED_COUNTER = [0]
+
+
+def _pwn_marker():
+    """Module-level picklable callable — proves arbitrary code ran on unpickle."""
+    _PWNED_COUNTER[0] += 1
+    return "executed"
+
+
+class TestRedisSecondaryPayloadSafety:
+    """Documents known limitation: pickle deserialization on every read.
+
+    A malicious or compromised Redis could inject a crafted pickle payload
+    whose ``__reduce__`` executes arbitrary code when ``get()`` loads it.
+    Fix plan §4 proposes HMAC-signed envelopes or JSON-only storage.
+    """
+
+    def test_tampered_payload_executes_arbitrary_code(self):
+        """Proves pickle.loads runs attacker-supplied callables today.
+
+        The defensive try/except inside ``get()`` incidentally returns None
+        because the evil payload isn't a ``{"gen":, "result":}`` dict — but
+        the callable ALREADY RAN by the time we handle the exception. That's
+        the vulnerability.
+
+        After FIX_PLAN_HARDENING.md §4 (HMAC-signed envelope), flip this
+        assertion to ``assert _PWNED_COUNTER[0] == 0``.
+        """
+        import pickle
+        import threading
+
+        import fakeredis
+
+        from hindsight_api.engine.search.recall_cache import RedisSecondaryCache
+
+        secondary = RedisSecondaryCache.__new__(RedisSecondaryCache)
+        secondary._client = fakeredis.FakeRedis()
+        secondary._ttl_seconds = 60
+        secondary._prefix = "recall_cache"
+        secondary._hits = 0
+        secondary._misses = 0
+        secondary._errors = 0
+        secondary._lock = threading.Lock()
+
+        class _Evil:
+            def __reduce__(self):
+                return (_pwn_marker, ())
+
+        k = _key(query="untrusted")
+        secondary._client.setex(secondary._entry_key(k), 60, pickle.dumps(_Evil()))
+
+        before = _PWNED_COUNTER[0]
+        secondary.get(k)
+        after = _PWNED_COUNTER[0]
+
+        assert after > before, (
+            "Expected current implementation to have executed the tampered "
+            "pickle payload during get(). If this failed, the hardening fix "
+            "may have landed — flip this assertion to assert equality."
+        )

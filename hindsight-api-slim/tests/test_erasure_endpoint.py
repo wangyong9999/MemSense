@@ -130,3 +130,93 @@ def test_erase_accepts_various_auth_header_formats(authorization_header):
     headers = {"Authorization": authorization_header} if authorization_header else {}
     resp = client.post("/v1/default/banks/my-bank/erase", headers=headers)
     assert resp.status_code == 200
+
+
+# ===========================================================================
+# Memory-lifecycle hardening
+# ===========================================================================
+
+
+def test_erase_is_idempotent_on_already_empty_bank():
+    """Erasing an empty bank returns 200 with zero counts — compliance idempotence."""
+    empty = {"memory_units_deleted": 0, "entities_deleted": 0, "documents_deleted": 0}
+    app, memory, _ = _build_app(memory_delete_result=empty)
+    register_erasure_route(app)
+    client = TestClient(app)
+
+    for _ in range(3):
+        resp = client.post("/v1/default/banks/bz/erase")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["memory_units_deleted"] == 0
+        assert body["success"] is True
+
+    assert memory.delete_bank.await_count == 3
+
+
+def test_erase_forwards_authentication_error_as_401():
+    """AuthenticationError from delete_bank must bubble up (upstream maps it)."""
+    from hindsight_api.extensions import AuthenticationError
+
+    app, memory, _ = _build_app()
+    memory.delete_bank = AsyncMock(side_effect=AuthenticationError("no key"))
+    register_erasure_route(app)
+
+    # Install the app's upstream-style exception handler.
+    from starlette.responses import JSONResponse
+
+    @app.exception_handler(AuthenticationError)
+    async def _handler(request, exc):
+        return JSONResponse(status_code=401, content={"detail": str(exc)})
+
+    client = TestClient(app)
+    resp = client.post("/v1/default/banks/bz/erase")
+    assert resp.status_code == 401
+
+
+@pytest.mark.xfail(
+    reason="On delete_bank exception the audit entry is never emitted. Compliance "
+    "requires a 'gdpr_erase_failed' record regardless of success. See "
+    "FIX_PLAN_HARDENING.md §3.",
+    strict=True,
+)
+def test_erase_emits_audit_entry_even_on_failure():
+    app, memory, audit = _build_app()
+    memory.delete_bank = AsyncMock(side_effect=RuntimeError("disk full"))
+    register_erasure_route(app)
+    client = TestClient(app)
+
+    resp = client.post("/v1/default/banks/bz/erase")
+    assert resp.status_code == 500
+    audit.log_fire_and_forget.assert_called_once()
+    entry = audit.log_fire_and_forget.call_args.args[0]
+    assert entry.action in ("gdpr_erase_failed", "gdpr_erase")
+    assert entry.bank_id == "bz"
+
+
+def test_erase_drop_bank_true_removes_bank_shell():
+    """drop_bank=true sets delete_bank_profile=True on the engine call."""
+    app, memory, _ = _build_app()
+    register_erasure_route(app)
+    client = TestClient(app)
+
+    resp = client.post("/v1/default/banks/bz/erase?drop_bank=true")
+    assert resp.status_code == 200
+    assert memory.delete_bank.await_args.kwargs["delete_bank_profile"] is True
+
+
+def test_erase_does_not_expose_internal_traceback():
+    """5xx responses must not leak stack traces to the caller."""
+    app, memory, _ = _build_app()
+    memory.delete_bank = AsyncMock(side_effect=RuntimeError("internal path /etc/secrets"))
+    register_erasure_route(app)
+    client = TestClient(app)
+
+    resp = client.post("/v1/default/banks/bz/erase")
+    assert resp.status_code == 500
+    detail = resp.json().get("detail", "")
+    assert "Traceback" not in detail
+    assert 'File "' not in detail
+    # Current impl surfaces the exception message — acceptable for now but
+    # tracked by FIX_PLAN_HARDENING.md §7 (sanitize error responses).
+    assert "internal path" in detail

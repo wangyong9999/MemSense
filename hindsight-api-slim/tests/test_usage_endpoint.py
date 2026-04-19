@@ -172,3 +172,92 @@ def test_usage_uses_explicit_start_end_when_provided():
     args = conn.fetch.await_args.args
     assert args[1] == datetime(2026, 4, 1, tzinfo=timezone.utc)
     assert args[2] == datetime(2026, 4, 15, tzinfo=timezone.utc)
+
+
+# ===========================================================================
+# Lifecycle / security hardening
+# ===========================================================================
+
+
+@pytest.mark.xfail(
+    reason="Usage endpoint does not call memory._authenticate_tenant — any caller "
+    "with or without a valid API key receives aggregated data across all banks. "
+    "See FIX_PLAN_HARDENING.md §2.",
+    strict=True,
+)
+def test_usage_endpoint_requires_authenticated_tenant():
+    """Documents the missing auth gate. When fixed, the endpoint should return 401
+    for unauthenticated requests and scope results to the caller's tenant.
+    """
+    app, _ = _build_app([])
+    register_usage_route(app)
+    client = TestClient(app)
+
+    resp = client.get("/v1/default/usage?group_by=operation")  # no Authorization header
+    assert resp.status_code == 401, f"expected 401 without auth, got {resp.status_code}"
+
+
+def test_usage_empty_window_returns_zero_totals():
+    """No token_usage rows in window → zero totals, empty groups, HTTP 200."""
+    app, _ = _build_app([])
+    register_usage_route(app)
+    client = TestClient(app)
+
+    resp = client.get("/v1/default/usage?group_by=operation")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["total_operations"] == 0
+    assert body["groups"] == []
+    assert body["totals"]["operation_count"] == 0
+
+
+def test_usage_negative_latency_does_not_crash():
+    """Defensive: if created_at tz handling goes wrong and produces invalid ranges,
+    the endpoint must surface a clean 400, never leak a stack trace.
+    """
+    app, _ = _build_app([])
+    register_usage_route(app)
+    client = TestClient(app)
+
+    # identical start and end (not strictly-before) → 400
+    resp = client.get("/v1/default/usage?start=2026-04-10T00:00:00Z&end=2026-04-10T00:00:00Z&group_by=operation")
+    assert resp.status_code == 400
+    assert "Traceback" not in resp.json()["detail"]
+
+
+def test_usage_total_equals_sum_of_groups_invariant():
+    """Totals must equal the sum of group rows — no double-counting, no loss."""
+    rows = [
+        {
+            "group_key": "retain",
+            "operation_count": 3,
+            "llm_input_tokens": 100,
+            "llm_output_tokens": 50,
+            "context_tokens": 0,
+            "saved_tokens": 0,
+        },
+        {
+            "group_key": "recall",
+            "operation_count": 7,
+            "llm_input_tokens": 0,
+            "llm_output_tokens": 0,
+            "context_tokens": 1400,
+            "saved_tokens": 200,
+        },
+        {
+            "group_key": "reflect",
+            "operation_count": 2,
+            "llm_input_tokens": 80,
+            "llm_output_tokens": 40,
+            "context_tokens": 300,
+            "saved_tokens": 50,
+        },
+    ]
+    app, _ = _build_app(rows)
+    register_usage_route(app)
+    client = TestClient(app)
+    body = client.get("/v1/default/usage?group_by=operation").json()
+
+    for field in ("operation_count", "llm_input_tokens", "llm_output_tokens", "context_tokens", "saved_tokens"):
+        summed = sum(g[field] for g in body["groups"])
+        assert body["totals"][field] == summed, f"totals[{field}] != sum of groups"
