@@ -984,3 +984,130 @@ class TestFactFormatCleanRegression:
         os.environ.pop("HINDSIGHT_API_RETAIN_FACT_FORMAT_CLEAN_ENABLED", None)
         os.environ.pop("HINDSIGHT_API_RETAIN_POST_EXTRACTION_ENABLED", None)
         clear_config_cache()
+
+
+class TestPIIRedact:
+    """Tests for PII redactor. Flag off by default so production behavior is unchanged."""
+
+    def test_redacts_email(self):
+        from hindsight_api.engine.retain.post_extraction.pii_redact import redact_pii
+
+        out, n = redact_pii("Reach me at john.doe@example.com tomorrow")
+        assert n == 1
+        assert "[REDACTED:email]" in out
+        assert "john.doe@example.com" not in out
+
+    def test_redacts_ssn(self):
+        from hindsight_api.engine.retain.post_extraction.pii_redact import redact_pii
+
+        out, n = redact_pii("SSN 123-45-6789 on file")
+        assert n == 1
+        assert "[REDACTED:ssn]" in out
+
+    def test_redacts_phone_us(self):
+        from hindsight_api.engine.retain.post_extraction.pii_redact import redact_pii
+
+        out, n = redact_pii("Call 415-555-1212 if you need to")
+        assert n >= 1
+        assert "[REDACTED:phone]" in out
+
+    def test_redacts_phone_intl(self):
+        from hindsight_api.engine.retain.post_extraction.pii_redact import redact_pii
+
+        out, n = redact_pii("My number is +44 20 7946 0958")
+        assert n >= 1
+        assert "[REDACTED:phone]" in out
+
+    def test_redacts_ipv4(self):
+        from hindsight_api.engine.retain.post_extraction.pii_redact import redact_pii
+
+        out, n = redact_pii("Server is 192.168.1.1 on the lab subnet")
+        assert n == 1
+        assert "[REDACTED:ip]" in out
+
+    def test_redacts_credit_card_with_luhn(self):
+        from hindsight_api.engine.retain.post_extraction.pii_redact import redact_pii
+
+        # 4532015112830366 is a Luhn-valid test number.
+        out, n = redact_pii("Card 4532015112830366 ending Tuesday")
+        assert n == 1
+        assert "[REDACTED:cc]" in out
+
+    def test_skips_non_luhn_16_digit_numbers(self):
+        from hindsight_api.engine.retain.post_extraction.pii_redact import redact_pii
+
+        # Random 16-digit run that fails Luhn — should not be treated as CC.
+        out, n = redact_pii("Reference 1234567890123456 logged")
+        assert "[REDACTED:cc]" not in out
+
+    def test_multiple_pii_counts_correctly(self):
+        from hindsight_api.engine.retain.post_extraction.pii_redact import redact_pii
+
+        out, n = redact_pii("Email foo@bar.com or call 415-555-1212; SSN 123-45-6789")
+        assert n == 3
+        assert out.count("[REDACTED:email]") == 1
+        assert out.count("[REDACTED:phone]") == 1
+        assert out.count("[REDACTED:ssn]") == 1
+
+    def test_empty_and_none_safe(self):
+        from hindsight_api.engine.retain.post_extraction.pii_redact import redact_pii
+
+        assert redact_pii("") == ("", 0)
+
+    def test_no_pii_unchanged(self):
+        from hindsight_api.engine.retain.post_extraction.pii_redact import redact_pii
+
+        text = "The quick brown fox jumped over the lazy dog."
+        assert redact_pii(text) == (text, 0)
+
+    def test_redacts_in_facts_across_fact_text_and_where(self):
+        from hindsight_api.engine.retain.post_extraction.pii_redact import redact_pii_in_facts
+
+        fact = FakeFact(
+            fact_text="User emailed alice@example.com",
+            where="Office at 10.0.0.5",
+        )
+        checked, redacted = redact_pii_in_facts([fact])
+        assert checked == 1
+        assert redacted == 1
+        assert "[REDACTED:email]" in fact.fact_text
+        assert "[REDACTED:ip]" in fact.where
+
+    def test_fact_without_pii_untouched(self):
+        from hindsight_api.engine.retain.post_extraction.pii_redact import redact_pii_in_facts
+
+        fact = FakeFact(fact_text="Alice enjoyed the hike.")
+        original = fact.fact_text
+        _, redacted = redact_pii_in_facts([fact])
+        assert redacted == 0
+        assert fact.fact_text == original
+
+    def test_enrichment_integration_runs_pii_step(self):
+        """With flag on, enrichment stats include pii_redacted count."""
+        from hindsight_api.engine.retain.post_extraction.enrichment import enrich_extracted_facts
+
+        facts = [FakeFact(fact_text="Email me at bob@example.com")]
+        stats = enrich_extracted_facts(
+            facts,
+            chunks=[],
+            date_validation_enabled=False,
+            detail_preservation_enabled=False,
+            fact_format_clean_enabled=False,
+            pii_redact_enabled=True,
+        )
+        assert stats.get("pii_redacted") == 1
+        assert "[REDACTED:email]" in facts[0].fact_text
+
+    def test_config_flag_loads_from_env(self):
+        import os
+
+        from hindsight_api.config import HindsightConfig, clear_config_cache
+
+        os.environ["HINDSIGHT_API_RETAIN_PII_REDACT_ENABLED"] = "true"
+        try:
+            clear_config_cache()
+            cfg = HindsightConfig.from_env()
+            assert cfg.retain_pii_redact_enabled is True
+        finally:
+            os.environ.pop("HINDSIGHT_API_RETAIN_PII_REDACT_ENABLED", None)
+            clear_config_cache()

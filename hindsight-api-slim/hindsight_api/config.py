@@ -380,6 +380,7 @@ ENV_RECALL_CACHE_FUZZY_THRESHOLD = "HINDSIGHT_API_RECALL_CACHE_FUZZY_THRESHOLD"
 # MemSense retain post-extraction enrichment
 ENV_RETAIN_POST_EXTRACTION_ENABLED = "HINDSIGHT_API_RETAIN_POST_EXTRACTION_ENABLED"
 ENV_RETAIN_FACT_FORMAT_CLEAN_ENABLED = "HINDSIGHT_API_RETAIN_FACT_FORMAT_CLEAN_ENABLED"
+ENV_RETAIN_PII_REDACT_ENABLED = "HINDSIGHT_API_RETAIN_PII_REDACT_ENABLED"
 
 # MemSense token accounting (writes to token_usage table, surfaces at /token-usage)
 ENV_TOKEN_ACCOUNTING_ENABLED = "HINDSIGHT_API_TOKEN_ACCOUNTING_ENABLED"
@@ -1053,6 +1054,7 @@ class HindsightConfig:
     # MemSense retain post-extraction enrichment
     retain_post_extraction_enabled: bool
     retain_fact_format_clean_enabled: bool
+    retain_pii_redact_enabled: bool
 
     # MemSense token accounting
     token_accounting_enabled: bool
@@ -1557,6 +1559,7 @@ class HindsightConfig:
             # MemSense retain post-extraction enrichment
             retain_post_extraction_enabled=os.getenv(ENV_RETAIN_POST_EXTRACTION_ENABLED, "false").lower() == "true",
             retain_fact_format_clean_enabled=os.getenv(ENV_RETAIN_FACT_FORMAT_CLEAN_ENABLED, "false").lower() == "true",
+            retain_pii_redact_enabled=os.getenv(ENV_RETAIN_PII_REDACT_ENABLED, "false").lower() == "true",
             # MemSense token accounting
             token_accounting_enabled=os.getenv(ENV_TOKEN_ACCOUNTING_ENABLED, "false").lower() == "true",
             # Retain settings

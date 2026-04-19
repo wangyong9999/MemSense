@@ -23,6 +23,7 @@ def enrich_extracted_facts(
     date_validation_enabled: bool = True,
     detail_preservation_enabled: bool = True,
     fact_format_clean_enabled: bool = False,
+    pii_redact_enabled: bool = False,
     date_tolerance_days: int = 2,
 ) -> dict:
     """Run all post-extraction enrichment steps.
@@ -32,6 +33,8 @@ def enrich_extracted_facts(
         chunks: List of ChunkMetadata objects (source text for cross-checking).
         date_validation_enabled: Whether to validate/correct dates.
         detail_preservation_enabled: Whether to restore lost proper nouns.
+        fact_format_clean_enabled: Whether to strip ``| When:`` segments.
+        pii_redact_enabled: Whether to redact email/phone/SSN/CC/IP patterns.
         date_tolerance_days: Max days difference before date is corrected.
 
     Returns:
@@ -68,9 +71,24 @@ def enrich_extracted_facts(
         stats["format_cleaned"] = cleaned
         stats["format_time"] = round(time.time() - step_start, 3)
 
+    # PII redaction runs after text-shape changes so regex sees the final text.
+    if pii_redact_enabled and facts:
+        from .pii_redact import redact_pii_in_facts
+
+        step_start = time.time()
+        checked, redacted = redact_pii_in_facts(facts)
+        stats["pii_checked"] = checked
+        stats["pii_redacted"] = redacted
+        stats["pii_time"] = round(time.time() - step_start, 3)
+
     stats["total_time"] = round(time.time() - start, 3)
 
-    if stats.get("date_corrected", 0) > 0 or stats.get("detail_enriched", 0) > 0 or stats.get("format_cleaned", 0) > 0:
+    if (
+        stats.get("date_corrected", 0) > 0
+        or stats.get("detail_enriched", 0) > 0
+        or stats.get("format_cleaned", 0) > 0
+        or stats.get("pii_redacted", 0) > 0
+    ):
         logger.info(
             "Post-extraction enrichment: %s",
             ", ".join(f"{k}={v}" for k, v in stats.items()),

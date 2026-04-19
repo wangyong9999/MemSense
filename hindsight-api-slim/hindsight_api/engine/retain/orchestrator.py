@@ -394,7 +394,7 @@ async def _extract_and_embed(
     from ...config import get_config as _get_config
 
     _cfg = _get_config()
-    if _cfg.retain_post_extraction_enabled or _cfg.retain_fact_format_clean_enabled:
+    if _cfg.retain_post_extraction_enabled or _cfg.retain_fact_format_clean_enabled or _cfg.retain_pii_redact_enabled:
         from .post_extraction.enrichment import enrich_extracted_facts
 
         enrichment_stats = enrich_extracted_facts(
@@ -403,6 +403,7 @@ async def _extract_and_embed(
             date_validation_enabled=_cfg.retain_post_extraction_enabled,
             detail_preservation_enabled=_cfg.retain_post_extraction_enabled,
             fact_format_clean_enabled=_cfg.retain_fact_format_clean_enabled,
+            pii_redact_enabled=_cfg.retain_pii_redact_enabled,
         )
         parts = []
         if enrichment_stats.get("date_corrected", 0) > 0:
@@ -411,6 +412,8 @@ async def _extract_and_embed(
             parts.append(f"details={enrichment_stats['detail_enriched']}")
         if enrichment_stats.get("format_cleaned", 0) > 0:
             parts.append(f"format={enrichment_stats['format_cleaned']}")
+        if enrichment_stats.get("pii_redacted", 0) > 0:
+            parts.append(f"pii={enrichment_stats['pii_redacted']}")
         if parts:
             log_buffer.append(
                 f"  Post-extraction enrichment: {', '.join(parts)} in {enrichment_stats.get('total_time', 0):.3f}s"
