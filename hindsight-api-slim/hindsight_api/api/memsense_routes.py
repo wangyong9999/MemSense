@@ -28,3 +28,9 @@ def register_memsense_routes(app: FastAPI) -> None:
 
         register_erasure_route(app)
         logger.info("MemSense: GDPR erase endpoint mounted at /v1/default/banks/{bank_id}/erase")
+
+    if getattr(cfg, "usage_api_enabled", False):
+        from .usage import register_usage_route
+
+        register_usage_route(app)
+        logger.info("MemSense: tenant-wide usage endpoint mounted at /v1/default/usage")

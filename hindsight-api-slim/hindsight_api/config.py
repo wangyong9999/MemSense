@@ -388,6 +388,9 @@ ENV_TOKEN_ACCOUNTING_ENABLED = "HINDSIGHT_API_TOKEN_ACCOUNTING_ENABLED"
 # MemSense compliance endpoints (GDPR erase)
 ENV_ERASURE_API_ENABLED = "HINDSIGHT_API_ERASURE_API_ENABLED"
 
+# MemSense usage reporting endpoint
+ENV_USAGE_API_ENABLED = "HINDSIGHT_API_USAGE_API_ENABLED"
+
 # Database migrations
 ENV_RUN_MIGRATIONS_ON_STARTUP = "HINDSIGHT_API_RUN_MIGRATIONS_ON_STARTUP"
 
@@ -1065,6 +1068,9 @@ class HindsightConfig:
     # MemSense compliance endpoints
     erasure_api_enabled: bool
 
+    # MemSense usage reporting
+    usage_api_enabled: bool
+
     # Database migrations
     run_migrations_on_startup: bool
 
@@ -1569,6 +1575,7 @@ class HindsightConfig:
             # MemSense token accounting
             token_accounting_enabled=os.getenv(ENV_TOKEN_ACCOUNTING_ENABLED, "false").lower() == "true",
             erasure_api_enabled=os.getenv(ENV_ERASURE_API_ENABLED, "false").lower() == "true",
+            usage_api_enabled=os.getenv(ENV_USAGE_API_ENABLED, "false").lower() == "true",
             # Retain settings
             retain_max_completion_tokens=int(
                 os.getenv(ENV_RETAIN_MAX_COMPLETION_TOKENS, str(DEFAULT_RETAIN_MAX_COMPLETION_TOKENS))
