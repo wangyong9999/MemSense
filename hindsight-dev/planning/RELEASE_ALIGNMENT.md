@@ -201,4 +201,10 @@ Claude Code plugin:
 - **PyPI package name vs Python import name**: we keep import name as `hindsight_api` (upstream unchanged) but publish as `memsense-api-slim`. Users do `pip install memsense-api-slim` and `import hindsight_api`. Same pattern as `beautifulsoup4` / `bs4`.
 - **Image names**: we keep Docker image names as `hindsight-*` in GHCR for the same reason. Only the owner namespace differs (`ghcr.io/wangyong9999/hindsight-api` vs `ghcr.io/vectorize-io/hindsight-api`).
 - **Trusted publishing**: first publish to PyPI for a new name creates the project under your account. No placeholder upload needed.
-- **release.yml gate**: currently `if: github.repository == 'vectorize-io/hindsight'` skips all PyPI/npm jobs on fork. Once Pending Publishers + NPM_TOKEN are in place, the gate becomes `|| github.repository == 'wangyong9999/MemSense'` and jobs run on our fork too.
+- **release.yml gate**: currently `if: github.repository == 'vectorize-io/hindsight'` skips all PyPI/npm jobs on fork. Once Pending Publishers + NPM_TOKEN are in place, the gate becomes `|| github.repository == 'wangyong9999/MemSense'` and jobs run on our fork too. A staged expansion of the gate lives on branch `staged/memsense-rename` — push it after the remaining Pending Publishers + `@memsense` scope are registered.
+
+---
+
+## Beyond release alignment
+
+After the publishing pipeline is finished, engineering priorities are tracked in [`ROADMAP_V0_6.md`](./ROADMAP_V0_6.md) — four feature tracks (compliance minimum, usage reporting, distributed recall cache, benchmark comparison harness) targeting enterprise POC readiness.
