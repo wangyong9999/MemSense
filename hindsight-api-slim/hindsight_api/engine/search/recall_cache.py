@@ -13,16 +13,23 @@ Two tiers:
 Cache is invalidated per-bank whenever a mutation (retain/delete) occurs
 via a lightweight generation counter (O(1) bump, lazy eviction).
 
+An optional Redis secondary layer can be plugged in so Tier 0 hits are
+shared across replicas. Redis is exact-match only; Tier 1 fuzzy stays
+local because scanning the whole keyspace per recall is prohibitive.
+
 This module is intentionally self-contained — it depends only on Python
-stdlib and has no imports from memory_engine or other engine internals,
-keeping the merge surface with upstream Hindsight minimal.
+stdlib (plus an optional Redis client imported lazily) and has no imports
+from memory_engine or other engine internals, keeping the merge surface
+with upstream Hindsight minimal.
 
 Design informed by tiered retrieval strategies in agent memory systems.
 """
 
 from __future__ import annotations
 
+import hashlib
 import logging
+import pickle
 import re
 import threading
 import time
@@ -326,6 +333,7 @@ class RecallCache:
         ttl_seconds: int = 300,
         fuzzy_threshold: float = 0.7,
         fuzzy_min_tokens: int = 2,
+        secondary: "RedisSecondaryCache | None" = None,
     ):
         self._max_size = max_size
         self._ttl_seconds = ttl_seconds
@@ -334,29 +342,44 @@ class RecallCache:
         self._cache: OrderedDict[RecallCacheKey, _CacheEntry] = OrderedDict()
         self._bank_generations: dict[str, int] = {}
         self._lock = threading.Lock()
+        self._secondary = secondary
         # Stats
         self._hits = 0
         self._fuzzy_hits = 0
+        self._secondary_hits = 0
         self._misses = 0
 
     # --- Tier 0: exact match ---
 
     def get(self, key: RecallCacheKey) -> Any | None:
-        """Tier 0: exact key lookup. Returns None on miss, expiry, or stale bank."""
+        """Tier 0: exact key lookup. Returns None on miss, expiry, or stale bank.
+
+        On local miss falls back to the Redis secondary (if configured) and
+        repopulates the local cache on secondary hit so subsequent fuzzy
+        lookups (Tier 1) can use it.
+        """
         with self._lock:
             entry = self._cache.get(key)
-            if entry is None:
-                self._misses += 1
-                return None
+            if entry is not None:
+                if not self._is_valid(key, entry):
+                    del self._cache[key]
+                else:
+                    self._cache.move_to_end(key)
+                    self._hits += 1
+                    return entry.result
 
-            if not self._is_valid(key, entry):
-                del self._cache[key]
-                self._misses += 1
-                return None
+        if self._secondary is not None:
+            result = self._secondary.get(key)
+            if result is not None:
+                # Repopulate local cache so Tier 1 can reuse the query tokens.
+                self.put(key, result, replicate_to_secondary=False)
+                with self._lock:
+                    self._secondary_hits += 1
+                return result
 
-            self._cache.move_to_end(key)
-            self._hits += 1
-            return entry.result
+        with self._lock:
+            self._misses += 1
+        return None
 
     # --- Tier 1: fuzzy match ---
 
@@ -412,8 +435,12 @@ class RecallCache:
 
     # --- Store ---
 
-    def put(self, key: RecallCacheKey, result: Any) -> None:
-        """Store a result in the cache with pre-computed query tokens."""
+    def put(self, key: RecallCacheKey, result: Any, *, replicate_to_secondary: bool = True) -> None:
+        """Store a result in the cache with pre-computed query tokens.
+
+        When ``replicate_to_secondary`` is true (default), also write through
+        to the Redis secondary so other replicas can Tier-0 hit.
+        """
         query_tokens = _tokenize_query(key.query_normalized)
 
         with self._lock:
@@ -427,17 +454,18 @@ class RecallCache:
                     bank_generation=current_gen,
                     query_tokens=query_tokens,
                 )
-                return
+            else:
+                while len(self._cache) >= self._max_size:
+                    self._cache.popitem(last=False)
+                self._cache[key] = _CacheEntry(
+                    result=result,
+                    created_at=time.time(),
+                    bank_generation=current_gen,
+                    query_tokens=query_tokens,
+                )
 
-            while len(self._cache) >= self._max_size:
-                self._cache.popitem(last=False)
-
-            self._cache[key] = _CacheEntry(
-                result=result,
-                created_at=time.time(),
-                bank_generation=current_gen,
-                query_tokens=query_tokens,
-            )
+        if replicate_to_secondary and self._secondary is not None:
+            self._secondary.put(key, result)
 
     # --- Invalidation ---
 
@@ -445,10 +473,14 @@ class RecallCache:
         """Bump the generation counter for *bank_id*, invalidating all its entries.
 
         Entries are lazily evicted on next ``get()`` / ``find_similar()``
-        rather than eagerly scanned, so this is O(1).
+        rather than eagerly scanned, so this is O(1). The Redis secondary
+        (if any) is invalidated by the same mechanism (incr on its own
+        generation counter).
         """
         with self._lock:
             self._bank_generations[bank_id] = self._bank_generations.get(bank_id, 0) + 1
+        if self._secondary is not None:
+            self._secondary.invalidate_bank(bank_id)
 
     def clear(self) -> None:
         """Drop all entries and reset stats."""
@@ -457,22 +489,34 @@ class RecallCache:
             self._bank_generations.clear()
             self._hits = 0
             self._fuzzy_hits = 0
+            self._secondary_hits = 0
             self._misses = 0
+        if self._secondary is not None:
+            self._secondary.clear()
 
     def stats(self) -> dict[str, Any]:
-        """Return cache statistics with separate exact/fuzzy hit counters."""
+        """Return cache statistics with separate exact/fuzzy/secondary hit counters."""
         with self._lock:
-            total = self._hits + self._fuzzy_hits + self._misses
-            return {
+            total = self._hits + self._fuzzy_hits + self._secondary_hits + self._misses
+            base = {
                 "exact_hits": self._hits,
                 "fuzzy_hits": self._fuzzy_hits,
+                "secondary_hits": self._secondary_hits,
                 "misses": self._misses,
-                "hit_rate": round((self._hits + self._fuzzy_hits) / total, 3) if total > 0 else 0.0,
+                "hit_rate": round(
+                    (self._hits + self._fuzzy_hits + self._secondary_hits) / total,
+                    3,
+                )
+                if total > 0
+                else 0.0,
                 "size": len(self._cache),
                 "max_size": self._max_size,
                 "ttl_seconds": self._ttl_seconds,
                 "fuzzy_threshold": self._fuzzy_threshold,
             }
+        if self._secondary is not None:
+            base.update(self._secondary.stats())
+        return base
 
     # --- Internal ---
 
@@ -482,3 +526,146 @@ class RecallCache:
             return False
         current_gen = self._bank_generations.get(key.bank_id, 0)
         return entry.bank_generation == current_gen
+
+
+# ---------------------------------------------------------------------------
+# Redis secondary cache (shared across replicas, exact-match only)
+# ---------------------------------------------------------------------------
+
+
+def _hash_key(key: RecallCacheKey) -> str:
+    """Stable SHA256 of the key tuple, truncated to 24 hex chars."""
+    raw = repr(
+        (
+            key.bank_id,
+            key.query_normalized,
+            tuple(sorted(key.fact_types)),
+            key.budget_value,
+            key.max_tokens,
+            tuple(sorted(key.tags)),
+            key.tags_match,
+            key.question_date,
+            key.include_entities,
+            key.include_chunks,
+            key.include_source_facts,
+        )
+    ).encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()[:24]
+
+
+class RedisSecondaryCache:
+    """Exact-match Tier 0 cache backed by Redis, for cross-replica sharing.
+
+    Values are pickled and stored under ``recall_cache:<bank_id>:<hash>`` with
+    SETEX TTL. Per-bank invalidation bumps a generation counter at
+    ``recall_cache_gen:<bank_id>`` so in-flight entries become stale without
+    needing a keyspace scan.
+
+    All operations fail gracefully: any Redis exception is logged and treated
+    as a cache miss, so a flaky Redis never blocks the recall pipeline.
+    """
+
+    def __init__(self, url: str, ttl_seconds: int = 300, prefix: str = "recall_cache"):
+        try:
+            import redis
+        except ImportError as exc:
+            raise RuntimeError(
+                "Redis recall cache requires the 'redis' package. "
+                "Install with: pip install 'memsense-api-slim[cache-redis]'"
+            ) from exc
+
+        self._client = redis.Redis.from_url(url, socket_timeout=1.0, socket_connect_timeout=1.0)
+        self._ttl_seconds = ttl_seconds
+        self._prefix = prefix
+        self._hits = 0
+        self._misses = 0
+        self._errors = 0
+        self._lock = threading.Lock()
+
+    def _entry_key(self, key: RecallCacheKey) -> str:
+        return f"{self._prefix}:{key.bank_id}:{_hash_key(key)}"
+
+    def _gen_key(self, bank_id: str) -> str:
+        return f"{self._prefix}_gen:{bank_id}"
+
+    def _current_gen(self, bank_id: str) -> int:
+        try:
+            raw = self._client.get(self._gen_key(bank_id))
+        except Exception:
+            return 0
+        return int(raw) if raw is not None else 0
+
+    def get(self, key: RecallCacheKey) -> Any | None:
+        try:
+            raw = self._client.get(self._entry_key(key))
+        except Exception:
+            with self._lock:
+                self._errors += 1
+            logger.debug("recall_cache redis get failed", exc_info=True)
+            return None
+
+        if raw is None:
+            with self._lock:
+                self._misses += 1
+            return None
+
+        try:
+            payload = pickle.loads(raw)
+            stored_gen = payload["gen"]
+            current_gen = self._current_gen(key.bank_id)
+            if stored_gen != current_gen:
+                with self._lock:
+                    self._misses += 1
+                return None
+            with self._lock:
+                self._hits += 1
+            return payload["result"]
+        except Exception:
+            with self._lock:
+                self._errors += 1
+            logger.debug("recall_cache redis decode failed", exc_info=True)
+            return None
+
+    def put(self, key: RecallCacheKey, result: Any) -> None:
+        try:
+            gen = self._current_gen(key.bank_id)
+            payload = pickle.dumps({"gen": gen, "result": result}, protocol=pickle.HIGHEST_PROTOCOL)
+            self._client.setex(self._entry_key(key), self._ttl_seconds, payload)
+        except Exception:
+            with self._lock:
+                self._errors += 1
+            logger.debug("recall_cache redis put failed", exc_info=True)
+
+    def invalidate_bank(self, bank_id: str) -> None:
+        try:
+            self._client.incr(self._gen_key(bank_id))
+        except Exception:
+            with self._lock:
+                self._errors += 1
+            logger.debug("recall_cache redis invalidate failed", exc_info=True)
+
+    def clear(self) -> None:
+        # Expensive operation; used only by tests / admin. Best-effort.
+        try:
+            cursor = 0
+            pattern = f"{self._prefix}*"
+            while True:
+                cursor, keys = self._client.scan(cursor=cursor, match=pattern, count=500)
+                if keys:
+                    self._client.delete(*keys)
+                if cursor == 0:
+                    break
+        except Exception:
+            with self._lock:
+                self._errors += 1
+            logger.debug("recall_cache redis clear failed", exc_info=True)
+
+    def stats(self) -> dict[str, Any]:
+        with self._lock:
+            total = self._hits + self._misses
+            return {
+                "redis_hits": self._hits,
+                "redis_misses": self._misses,
+                "redis_errors": self._errors,
+                "redis_hit_rate": round(self._hits / total, 3) if total > 0 else 0.0,
+            }

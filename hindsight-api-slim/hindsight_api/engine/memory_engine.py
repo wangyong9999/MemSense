@@ -442,15 +442,28 @@ class MemoryEngine(MemoryEngineInterface):
         )
         self._lazy_reranker = lazy_reranker if lazy_reranker is not None else config.lazy_reranker
 
-        # MemSense recall cache (in-memory LRU, invalidated on bank mutation)
+        # MemSense recall cache (in-memory LRU, invalidated on bank mutation;
+        # optional Redis secondary for cross-replica Tier 0 sharing)
         self._recall_cache = None
         if config.recall_cache_enabled:
-            from .search.recall_cache import RecallCache
+            from .search.recall_cache import RecallCache, RedisSecondaryCache
+
+            secondary = None
+            if config.recall_cache_redis_url:
+                try:
+                    secondary = RedisSecondaryCache(
+                        url=config.recall_cache_redis_url,
+                        ttl_seconds=config.recall_cache_ttl_seconds,
+                    )
+                    logger.info("Recall cache Redis secondary configured at %s", config.recall_cache_redis_url)
+                except Exception as exc:
+                    logger.warning("Redis secondary init failed, using local cache only: %s", exc)
 
             self._recall_cache = RecallCache(
                 max_size=config.recall_cache_max_size,
                 ttl_seconds=config.recall_cache_ttl_seconds,
                 fuzzy_threshold=config.recall_cache_fuzzy_threshold,
+                secondary=secondary,
             )
 
         # Apply defaults from config

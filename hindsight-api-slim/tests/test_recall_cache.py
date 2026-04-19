@@ -470,3 +470,125 @@ class TestFuzzyMatching:
 
         k2 = _key(bank_id="bx", query="Which games does Jolene play with partner")
         assert cache.find_similar(k2) is None
+
+
+# ===========================================================================
+# Redis secondary cache (cross-replica Tier 0)
+# ===========================================================================
+
+
+class TestRedisSecondaryCache:
+    """Exact-match Tier 0 Redis secondary. Uses fakeredis — no real server."""
+
+    def _make_secondary(self):
+        import fakeredis
+
+        from hindsight_api.engine.search.recall_cache import RedisSecondaryCache
+
+        secondary = RedisSecondaryCache.__new__(RedisSecondaryCache)
+        secondary._client = fakeredis.FakeRedis()
+        secondary._ttl_seconds = 60
+        secondary._prefix = "recall_cache"
+        secondary._hits = 0
+        secondary._misses = 0
+        secondary._errors = 0
+        import threading
+
+        secondary._lock = threading.Lock()
+        return secondary
+
+    def test_secondary_roundtrip(self):
+        secondary = self._make_secondary()
+        k = _key(query="hello there")
+        secondary.put(k, {"answer": 42})
+        got = secondary.get(k)
+        assert got == {"answer": 42}
+
+    def test_secondary_invalidate(self):
+        secondary = self._make_secondary()
+        k = _key(query="hello there", bank_id="bz")
+        secondary.put(k, "v")
+        assert secondary.get(k) == "v"
+        secondary.invalidate_bank("bz")
+        # Stored entry's generation no longer matches bank's current generation.
+        assert secondary.get(k) is None
+
+    def test_secondary_miss_on_unknown_key(self):
+        secondary = self._make_secondary()
+        assert secondary.get(_key(query="never stored")) is None
+
+    def test_secondary_stats(self):
+        secondary = self._make_secondary()
+        k = _key(query="stats check")
+        secondary.get(k)
+        secondary.put(k, "v")
+        secondary.get(k)
+
+        stats = secondary.stats()
+        assert stats["redis_hits"] == 1
+        assert stats["redis_misses"] == 1
+        assert stats["redis_hit_rate"] == 0.5
+
+    def test_primary_reads_through_to_secondary_on_local_miss(self):
+        secondary = self._make_secondary()
+        cache = RecallCache(max_size=10, ttl_seconds=60, secondary=secondary)
+        k = _key(query="warm from replica A")
+
+        # Replica A writes directly to the secondary (simulating remote put).
+        secondary.put(k, "from-A")
+
+        # Replica B has empty local cache; get() should promote the value.
+        assert cache.get(k) == "from-A"
+
+        stats = cache.stats()
+        assert stats["secondary_hits"] == 1
+
+        # Local cache now warm — subsequent exact get is a local hit.
+        assert cache.get(k) == "from-A"
+        assert cache.stats()["exact_hits"] == 1
+
+    def test_primary_write_replicates_to_secondary(self):
+        secondary = self._make_secondary()
+        cache = RecallCache(max_size=10, ttl_seconds=60, secondary=secondary)
+        k = _key(query="propagate to replicas")
+
+        cache.put(k, "shared")
+        assert secondary.get(k) == "shared"
+
+    def test_invalidate_propagates_to_secondary(self):
+        secondary = self._make_secondary()
+        cache = RecallCache(max_size=10, ttl_seconds=60, secondary=secondary)
+        k = _key(query="invalidate me", bank_id="bq")
+        cache.put(k, "v")
+
+        cache.invalidate_bank("bq")
+
+        # Local miss and secondary entry's generation no longer matches.
+        assert cache.get(k) is None
+
+    def test_secondary_errors_are_swallowed(self):
+        from unittest.mock import MagicMock
+
+        from hindsight_api.engine.search.recall_cache import RedisSecondaryCache
+
+        secondary = RedisSecondaryCache.__new__(RedisSecondaryCache)
+        bad = MagicMock()
+        bad.get.side_effect = RuntimeError("network broken")
+        bad.setex.side_effect = RuntimeError("network broken")
+        bad.incr.side_effect = RuntimeError("network broken")
+        secondary._client = bad
+        secondary._ttl_seconds = 60
+        secondary._prefix = "recall_cache"
+        secondary._hits = 0
+        secondary._misses = 0
+        secondary._errors = 0
+        import threading
+
+        secondary._lock = threading.Lock()
+
+        k = _key(query="redis is down")
+        secondary.put(k, "v")
+        assert secondary.get(k) is None
+        secondary.invalidate_bank("anything")
+
+        assert secondary.stats()["redis_errors"] >= 3

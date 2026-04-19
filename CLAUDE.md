@@ -345,8 +345,14 @@ MemSense recall cache (disabled by default):
 - `HINDSIGHT_API_RECALL_CACHE_MAX_SIZE`: LRU cache capacity (default: 256)
 - `HINDSIGHT_API_RECALL_CACHE_TTL_SECONDS`: Cache entry TTL (default: 300)
 - `HINDSIGHT_API_RECALL_CACHE_FUZZY_THRESHOLD`: Jaccard similarity threshold for fuzzy matching (default: 0.7, set 0 to disable fuzzy)
+- `HINDSIGHT_API_RECALL_CACHE_REDIS_URL`: Optional Redis URL (e.g. `redis://localhost:6379/0`). When set, Tier 0 exact-match results are shared across replicas; requires `pip install memsense-api-slim[cache-redis]`.
 
 MemSense retain enrichment (disabled by default):
 - `HINDSIGHT_API_RETAIN_POST_EXTRACTION_ENABLED`: Enable date correction + detail preservation (default: false)
 - `HINDSIGHT_API_RETAIN_FACT_FORMAT_CLEAN_ENABLED`: Strip metadata suffixes from fact text (default: false)
+- `HINDSIGHT_API_RETAIN_PII_REDACT_ENABLED`: Redact email/phone/SSN/credit-card/IP patterns in extracted facts (default: false)
 - `HINDSIGHT_API_RETAIN_MISSION`: Custom instructions for fact extraction (see ingest-locomo.sh for recommended LoCoMo mission)
+
+MemSense compliance + usage endpoints (disabled by default):
+- `HINDSIGHT_API_ERASURE_API_ENABLED`: Expose `POST /v1/default/banks/{bank_id}/erase` (GDPR-style erase, emits `gdpr_erase` audit entry; `drop_bank=true` also removes bank shell)
+- `HINDSIGHT_API_USAGE_API_ENABLED`: Expose `GET /v1/default/usage` (tenant-wide token-usage aggregation over an arbitrary time window, grouped by operation / bank / day)
