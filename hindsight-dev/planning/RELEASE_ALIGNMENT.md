@@ -207,4 +207,4 @@ Claude Code plugin:
 
 ## Beyond release alignment
 
-After the publishing pipeline is finished, engineering priorities are tracked in [`ROADMAP_V0_6.md`](./ROADMAP_V0_6.md) — four feature tracks (compliance minimum, usage reporting, distributed recall cache, benchmark comparison harness) targeting enterprise POC readiness.
+The v0.6 engineering roadmap (compliance minimum, usage reporting, distributed recall cache, benchmark comparison harness) is complete. Archived plan with per-track commit pointers: [`archive/ROADMAP_V0_6.md`](./archive/ROADMAP_V0_6.md).

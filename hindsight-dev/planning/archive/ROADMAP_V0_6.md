@@ -1,4 +1,28 @@
-# v0.6 roadmap — enterprise commercial readiness
+# v0.6 roadmap — enterprise commercial readiness (COMPLETED)
+
+Status: all five tracks landed on `main`. Plan doc archived; original
+content preserved below.
+
+| Track | Commit | Flag / entry point |
+|---|---|---|
+| P2a — PII redactor | `8366e9e4` | `HINDSIGHT_API_RETAIN_PII_REDACT_ENABLED` |
+| P2b — GDPR erase endpoint | `3a3ed69a` | `HINDSIGHT_API_ERASURE_API_ENABLED` → `POST /v1/default/banks/{bank_id}/erase` |
+| P3 — Usage reporting endpoint | `33b49ac3` | `HINDSIGHT_API_USAGE_API_ENABLED` → `GET /v1/default/usage` |
+| P1 — Redis secondary cache | `056c704f` | `HINDSIGHT_API_RECALL_CACHE_REDIS_URL` + extra `cache-redis` |
+| P0 — Benchmark comparison harness | `e31e4452` | `scripts/benchmarks/run-comparison.sh` |
+
+Remaining on the user side:
+
+- Run the comparison harness with production LLM keys and publish the
+  first benchmark table in `hindsight-dev/benchmarks/comparison/`.
+- Decide release cadence for these changes — v0.5.5 (flags off) or
+  v0.6.0 (subset on by default after benchmarks bless them).
+
+---
+
+Original plan preserved below for reference.
+
+---
 
 Scope: four feature tracks that turn MemSense from "OSS fork with flags" into "enterprise-pilot-ready memory system with measured advantage." All additions MemSense-only, flag-gated, off by default — so upstream merges stay mechanical and customers opt in per feature.
 
