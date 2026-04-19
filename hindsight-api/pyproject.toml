@@ -3,17 +3,17 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "hindsight-api"
+name = "memsense-api"
 version = "0.5.4"
 description = "Hindsight: Agent Memory That Works Like Human Memory"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "hindsight-api-slim[all]>=0.4.17",
+    "memsense-api-slim[all]>=0.4.17",
 ]
 
 [tool.uv.sources]
-hindsight-api-slim = { workspace = true }
+memsense-api-slim = { workspace = true }
 
 [project.scripts]
 hindsight-api = "hindsight_api.main:main"

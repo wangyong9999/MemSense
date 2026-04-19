@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "hindsight-embed"
+name = "memsense-embed"
 version = "0.5.4"
 description = "Hindsight embedded CLI - local memory operations without a server"
 readme = "README.md"

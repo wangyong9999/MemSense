@@ -8,7 +8,7 @@ version = "0.5.4"
 description = "Development utilities for Hindsight"
 requires-python = ">=3.11"
 dependencies = [
-    "hindsight-api",
+    "memsense-api",
     "python-fasthtml>=0.12.33",
     "streamlit>=1.54.0",
     "openai>=1.0.0",
@@ -28,7 +28,7 @@ test = [
 packages = ["hindsight_dev", "benchmarks", "upgrade_tests"]
 
 [tool.uv.sources]
-hindsight-api = { workspace = true }
+memsense-api = { workspace = true }
 
 [project.scripts]
 generate-openapi = "hindsight_dev.generate_openapi:generate_openapi_spec"

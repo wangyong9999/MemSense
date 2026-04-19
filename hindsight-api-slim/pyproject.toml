@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "hindsight-api-slim"
+name = "memsense-api-slim"
 version = "0.5.4"
 description = "Hindsight: Agent Memory That Works Like Human Memory"
 readme = "README.md"
@@ -87,7 +87,7 @@ embedded-db = [
     "pg0-embedded>=0.11.0",
 ]
 all = [
-    "hindsight-api-slim[local-ml,embedded-db]",
+    "memsense-api-slim[local-ml,embedded-db]",
 ]
 test = [
     "pytest>=7.0.0",

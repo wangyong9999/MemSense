@@ -8,8 +8,9 @@ on:
 jobs:
   release-python-packages:
     runs-on: ubuntu-latest
-    # MemSense: publish only from the upstream repo; forks skip.
-    if: github.repository == 'vectorize-io/hindsight'
+    # MemSense: upstream publishes all 6 packages; our fork publishes a
+    # subset gated per-step (only names with a PyPI Pending Publisher run).
+    if: github.repository == 'vectorize-io/hindsight' || github.repository == 'wangyong9999/MemSense'
     environment: pypi
     permissions:
       id-token: write
@@ -53,7 +54,10 @@ jobs:
       run: uv build --out-dir dist
 
     # Publish in order (client and api-slim first, then api/all wrappers which depend on them)
+    # MemSense: each step gated per-repo. Our fork ships PyPI packages as
+    # memsense-* one at a time, as Pending Publishers are registered.
     - name: Publish hindsight-client to PyPI
+      if: github.repository == 'vectorize-io/hindsight'
       uses: pypa/gh-action-pypi-publish@release/v1
       with:
         packages-dir: ./hindsight-clients/python/dist
@@ -66,24 +70,28 @@ jobs:
         skip-existing: true
 
     - name: Publish hindsight-api to PyPI
+      if: github.repository == 'vectorize-io/hindsight'
       uses: pypa/gh-action-pypi-publish@release/v1
       with:
         packages-dir: ./hindsight-api/dist
         skip-existing: true
 
     - name: Publish hindsight-all to PyPI
+      if: github.repository == 'vectorize-io/hindsight'
       uses: pypa/gh-action-pypi-publish@release/v1
       with:
         packages-dir: ./hindsight-all/dist
         skip-existing: true
 
     - name: Publish hindsight-all-slim to PyPI
+      if: github.repository == 'vectorize-io/hindsight'
       uses: pypa/gh-action-pypi-publish@release/v1
       with:
         packages-dir: ./hindsight-all-slim/dist
         skip-existing: true
 
     - name: Publish hindsight-embed to PyPI
+      if: github.repository == 'vectorize-io/hindsight'
       uses: pypa/gh-action-pypi-publish@release/v1
       with:
         packages-dir: ./hindsight-embed/dist

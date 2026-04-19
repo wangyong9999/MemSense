@@ -1,5 +1,5 @@
 {
-  "name": "@vectorize-io/hindsight-client",
+  "name": "@memsense/hindsight-client",
   "version": "0.5.4",
   "description": "TypeScript client for Hindsight - Semantic memory system with personality-driven thinking",
   "main": "./dist/index.js",

@@ -1,8 +1,8 @@
-# @vectorize-io/hindsight-all
+# @memsense/hindsight-all
 
 Node.js equivalent of the Python [`hindsight-all`](https://pypi.org/project/hindsight-all/) package — programmatic lifecycle manager for a local Hindsight daemon. Use this when you want to embed Hindsight in a Node application without hand-rolling subprocess management.
 
-This package deliberately does **not** ship an HTTP client. Once the daemon is running, talk to it with [`@vectorize-io/hindsight-client`](https://www.npmjs.com/package/@vectorize-io/hindsight-client) against `server.getBaseUrl()`. The two packages compose — one owns the daemon process, the other owns the HTTP API surface.
+This package deliberately does **not** ship an HTTP client. Once the daemon is running, talk to it with [`@memsense/hindsight-client`](https://www.npmjs.com/package/@memsense/hindsight-client) against `server.getBaseUrl()`. The two packages compose — one owns the daemon process, the other owns the HTTP API surface.
 
 ## Requirements
 
@@ -12,14 +12,14 @@ This package deliberately does **not** ship an HTTP client. Once the daemon is r
 ## Install
 
 ```bash
-npm install @vectorize-io/hindsight-all @vectorize-io/hindsight-client
+npm install @memsense/hindsight-all @memsense/hindsight-client
 ```
 
 ## Example
 
 ```ts
-import { HindsightServer, consoleLogger } from '@vectorize-io/hindsight-all';
-import { HindsightClient } from '@vectorize-io/hindsight-client';
+import { HindsightServer, consoleLogger } from '@memsense/hindsight-all';
+import { HindsightClient } from '@memsense/hindsight-client';
 
 const server = new HindsightServer({
   profile: 'my-app',
@@ -73,7 +73,7 @@ new HindsightServer({
 - `Logger` interface plus `silentLogger` (default) and `consoleLogger` helpers.
 - `getEmbedCommand(opts)` — low-level helper that returns the `[cmd, ...args]` tuple used to invoke the underlying Python CLI.
 
-For memory operations (retain, recall, reflect, bank management, stats) use [`@vectorize-io/hindsight-client`](https://www.npmjs.com/package/@vectorize-io/hindsight-client).
+For memory operations (retain, recall, reflect, bank management, stats) use [`@memsense/hindsight-client`](https://www.npmjs.com/package/@memsense/hindsight-client).
 
 ## License
 
