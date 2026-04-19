@@ -2772,6 +2772,11 @@ def create_app(
     # Register all routes
     _register_routes(app)
 
+    # MemSense fork-only routes (flag-gated; no-op when flags off)
+    from .memsense_routes import register_memsense_routes
+
+    register_memsense_routes(app)
+
     # Mount HTTP extension router if available
     if http_extension:
         extension_router = http_extension.get_router(memory)
