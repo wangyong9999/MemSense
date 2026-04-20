@@ -377,6 +377,7 @@ ENV_RECALL_CACHE_MAX_SIZE = "HINDSIGHT_API_RECALL_CACHE_MAX_SIZE"
 ENV_RECALL_CACHE_TTL_SECONDS = "HINDSIGHT_API_RECALL_CACHE_TTL_SECONDS"
 ENV_RECALL_CACHE_FUZZY_THRESHOLD = "HINDSIGHT_API_RECALL_CACHE_FUZZY_THRESHOLD"
 ENV_RECALL_CACHE_REDIS_URL = "HINDSIGHT_API_RECALL_CACHE_REDIS_URL"
+ENV_RECALL_CACHE_SIGNING_KEY = "HINDSIGHT_API_RECALL_CACHE_SIGNING_KEY"
 
 # MemSense retain post-extraction enrichment
 ENV_RETAIN_POST_EXTRACTION_ENABLED = "HINDSIGHT_API_RETAIN_POST_EXTRACTION_ENABLED"
@@ -1058,6 +1059,7 @@ class HindsightConfig:
     recall_cache_ttl_seconds: int
     recall_cache_fuzzy_threshold: float
     recall_cache_redis_url: str | None
+    recall_cache_signing_key: str | None
 
     # MemSense retain post-extraction enrichment
     retain_post_extraction_enabled: bool
@@ -1571,6 +1573,7 @@ class HindsightConfig:
             recall_cache_ttl_seconds=int(os.getenv(ENV_RECALL_CACHE_TTL_SECONDS, "300")),
             recall_cache_fuzzy_threshold=float(os.getenv(ENV_RECALL_CACHE_FUZZY_THRESHOLD, "0.7")),
             recall_cache_redis_url=os.getenv(ENV_RECALL_CACHE_REDIS_URL) or None,
+            recall_cache_signing_key=os.getenv(ENV_RECALL_CACHE_SIGNING_KEY) or None,
             # MemSense retain post-extraction enrichment
             retain_post_extraction_enabled=os.getenv(ENV_RETAIN_POST_EXTRACTION_ENABLED, "false").lower() == "true",
             retain_fact_format_clean_enabled=os.getenv(ENV_RETAIN_FACT_FORMAT_CLEAN_ENABLED, "false").lower() == "true",

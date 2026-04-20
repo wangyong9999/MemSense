@@ -346,6 +346,7 @@ MemSense recall cache (disabled by default):
 - `HINDSIGHT_API_RECALL_CACHE_TTL_SECONDS`: Cache entry TTL (default: 300)
 - `HINDSIGHT_API_RECALL_CACHE_FUZZY_THRESHOLD`: Jaccard similarity threshold for fuzzy matching (default: 0.7, set 0 to disable fuzzy)
 - `HINDSIGHT_API_RECALL_CACHE_REDIS_URL`: Optional Redis URL (e.g. `redis://localhost:6379/0`). When set, Tier 0 exact-match results are shared across replicas; requires `pip install memsense-api-slim[cache-redis]`.
+- `HINDSIGHT_API_RECALL_CACHE_SIGNING_KEY`: Required when `RECALL_CACHE_REDIS_URL` is set. High-entropy secret (>= 16 bytes, identical across all replicas) used to HMAC-authenticate Redis payloads so a compromised Redis cannot inject executable pickle.
 
 MemSense retain enrichment (disabled by default):
 - `HINDSIGHT_API_RETAIN_POST_EXTRACTION_ENABLED`: Enable date correction + detail preservation (default: false)

@@ -553,19 +553,73 @@ def _hash_key(key: RecallCacheKey) -> str:
     return hashlib.sha256(raw).hexdigest()[:24]
 
 
+_SIGNATURE_ALGO = "sha256"
+_ENVELOPE_VERSION = b"v1"
+
+
+def _sign(secret: bytes, payload: bytes) -> bytes:
+    import hmac
+
+    return hmac.new(secret, payload, _SIGNATURE_ALGO).digest()
+
+
+def _seal(secret: bytes, payload: bytes) -> bytes:
+    """Wrap ``payload`` in a versioned + HMAC-authenticated envelope.
+
+    Envelope format (binary):
+        b"v1" || mac(32 bytes) || payload
+
+    The version prefix lets us roll forward to a different algorithm
+    without false-positives against legacy unsigned blobs.
+    """
+    return _ENVELOPE_VERSION + _sign(secret, payload) + payload
+
+
+def _unseal(secret: bytes, sealed: bytes) -> bytes | None:
+    """Verify and strip the envelope. Returns the inner payload on success,
+    ``None`` on any tampering / format error / missing signature.
+    """
+    import hmac
+
+    if not sealed.startswith(_ENVELOPE_VERSION):
+        return None
+    body = sealed[len(_ENVELOPE_VERSION) :]
+    if len(body) < 32:
+        return None
+    mac = body[:32]
+    payload = body[32:]
+    expected = _sign(secret, payload)
+    if not hmac.compare_digest(mac, expected):
+        return None
+    return payload
+
+
 class RedisSecondaryCache:
     """Exact-match Tier 0 cache backed by Redis, for cross-replica sharing.
 
-    Values are pickled and stored under ``recall_cache:<bank_id>:<hash>`` with
-    SETEX TTL. Per-bank invalidation bumps a generation counter at
+    Entries are stored as HMAC-authenticated envelopes: an attacker who can
+    inject or modify payloads in Redis cannot cause arbitrary code execution
+    on read, because ``get()`` verifies the MAC BEFORE ``pickle.loads``. A
+    tampered or unsigned blob is rejected as a cache miss.
+
+    Envelope format: ``b"v1" || hmac_sha256(secret, payload)(32) || payload``.
+    The payload is a pickle of ``{"gen": <int>, "result": <RecallResult>}``.
+
+    Per-bank invalidation bumps a generation counter at
     ``recall_cache_gen:<bank_id>`` so in-flight entries become stale without
     needing a keyspace scan.
 
-    All operations fail gracefully: any Redis exception is logged and treated
-    as a cache miss, so a flaky Redis never blocks the recall pipeline.
+    All Redis-side operations fail gracefully: any exception is logged and
+    treated as a cache miss, so a flaky Redis never blocks the recall pipeline.
     """
 
-    def __init__(self, url: str, ttl_seconds: int = 300, prefix: str = "recall_cache"):
+    def __init__(
+        self,
+        url: str,
+        signing_key: bytes,
+        ttl_seconds: int = 300,
+        prefix: str = "recall_cache",
+    ):
         try:
             import redis
         except ImportError as exc:
@@ -574,12 +628,21 @@ class RedisSecondaryCache:
                 "Install with: pip install 'memsense-api-slim[cache-redis]'"
             ) from exc
 
+        if not signing_key or len(signing_key) < 16:
+            raise RuntimeError(
+                "Redis recall cache requires a signing key of at least 16 bytes. "
+                "Set HINDSIGHT_API_RECALL_CACHE_SIGNING_KEY to a high-entropy "
+                "secret (same value across all replicas)."
+            )
+
         self._client = redis.Redis.from_url(url, socket_timeout=1.0, socket_connect_timeout=1.0)
+        self._signing_key = signing_key
         self._ttl_seconds = ttl_seconds
         self._prefix = prefix
         self._hits = 0
         self._misses = 0
         self._errors = 0
+        self._rejected = 0
         self._lock = threading.Lock()
 
     def _entry_key(self, key: RecallCacheKey) -> str:
@@ -609,9 +672,20 @@ class RedisSecondaryCache:
                 self._misses += 1
             return None
 
+        # Verify the envelope BEFORE deserializing. A tampered or unsigned
+        # blob is rejected outright — pickle.loads never sees it, so
+        # attacker-supplied __reduce__ payloads cannot execute.
+        payload = _unseal(self._signing_key, raw)
+        if payload is None:
+            with self._lock:
+                self._rejected += 1
+                self._misses += 1
+            logger.warning("recall_cache redis rejected unsigned/tampered payload")
+            return None
+
         try:
-            payload = pickle.loads(raw)
-            stored_gen = payload["gen"]
+            parsed = pickle.loads(payload)
+            stored_gen = parsed["gen"]
             current_gen = self._current_gen(key.bank_id)
             if stored_gen != current_gen:
                 with self._lock:
@@ -619,7 +693,7 @@ class RedisSecondaryCache:
                 return None
             with self._lock:
                 self._hits += 1
-            return payload["result"]
+            return parsed["result"]
         except Exception:
             with self._lock:
                 self._errors += 1
@@ -630,7 +704,8 @@ class RedisSecondaryCache:
         try:
             gen = self._current_gen(key.bank_id)
             payload = pickle.dumps({"gen": gen, "result": result}, protocol=pickle.HIGHEST_PROTOCOL)
-            self._client.setex(self._entry_key(key), self._ttl_seconds, payload)
+            sealed = _seal(self._signing_key, payload)
+            self._client.setex(self._entry_key(key), self._ttl_seconds, sealed)
         except Exception:
             with self._lock:
                 self._errors += 1
@@ -667,5 +742,6 @@ class RedisSecondaryCache:
                 "redis_hits": self._hits,
                 "redis_misses": self._misses,
                 "redis_errors": self._errors,
+                "redis_rejected": self._rejected,
                 "redis_hit_rate": round(self._hits / total, 3) if total > 0 else 0.0,
             }

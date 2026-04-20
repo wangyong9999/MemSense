@@ -487,11 +487,13 @@ class TestRedisSecondaryCache:
 
         secondary = RedisSecondaryCache.__new__(RedisSecondaryCache)
         secondary._client = fakeredis.FakeRedis()
+        secondary._signing_key = b"test-signing-key-at-least-16-bytes-long"
         secondary._ttl_seconds = 60
         secondary._prefix = "recall_cache"
         secondary._hits = 0
         secondary._misses = 0
         secondary._errors = 0
+        secondary._rejected = 0
         import threading
 
         secondary._lock = threading.Lock()
@@ -577,11 +579,13 @@ class TestRedisSecondaryCache:
         bad.setex.side_effect = RuntimeError("network broken")
         bad.incr.side_effect = RuntimeError("network broken")
         secondary._client = bad
+        secondary._signing_key = b"test-signing-key-at-least-16-bytes-long"
         secondary._ttl_seconds = 60
         secondary._prefix = "recall_cache"
         secondary._hits = 0
         secondary._misses = 0
         secondary._errors = 0
+        secondary._rejected = 0
         import threading
 
         secondary._lock = threading.Lock()
@@ -689,11 +693,13 @@ class TestRedisCrossReplica:
         def make():
             sec = RedisSecondaryCache.__new__(RedisSecondaryCache)
             sec._client = fakeredis.FakeRedis(server=server)
+            sec._signing_key = b"test-signing-key-at-least-16-bytes-long"
             sec._ttl_seconds = 60
             sec._prefix = "recall_cache"
             sec._hits = 0
             sec._misses = 0
             sec._errors = 0
+            sec._rejected = 0
             sec._lock = threading.Lock()
             return sec
 
@@ -767,53 +773,89 @@ def _pwn_marker():
 
 
 class TestRedisSecondaryPayloadSafety:
-    """Documents known limitation: pickle deserialization on every read.
-
-    A malicious or compromised Redis could inject a crafted pickle payload
-    whose ``__reduce__`` executes arbitrary code when ``get()`` loads it.
-    Fix plan §4 proposes HMAC-signed envelopes or JSON-only storage.
+    """HMAC-signed envelope — tampered / unsigned payloads must be rejected
+    BEFORE pickle.loads runs, so attacker-controlled __reduce__ never fires.
     """
 
-    def test_tampered_payload_executes_arbitrary_code(self):
-        """Proves pickle.loads runs attacker-supplied callables today.
-
-        The defensive try/except inside ``get()`` incidentally returns None
-        because the evil payload isn't a ``{"gen":, "result":}`` dict — but
-        the callable ALREADY RAN by the time we handle the exception. That's
-        the vulnerability.
-
-        After FIX_PLAN_HARDENING.md §4 (HMAC-signed envelope), flip this
-        assertion to ``assert _PWNED_COUNTER[0] == 0``.
-        """
-        import pickle
+    def _make_sec(self, signing_key=b"test-signing-key-at-least-16-bytes-long"):
         import threading
 
         import fakeredis
 
         from hindsight_api.engine.search.recall_cache import RedisSecondaryCache
 
-        secondary = RedisSecondaryCache.__new__(RedisSecondaryCache)
-        secondary._client = fakeredis.FakeRedis()
-        secondary._ttl_seconds = 60
-        secondary._prefix = "recall_cache"
-        secondary._hits = 0
-        secondary._misses = 0
-        secondary._errors = 0
-        secondary._lock = threading.Lock()
+        sec = RedisSecondaryCache.__new__(RedisSecondaryCache)
+        sec._client = fakeredis.FakeRedis()
+        sec._signing_key = signing_key
+        sec._ttl_seconds = 60
+        sec._prefix = "recall_cache"
+        sec._hits = 0
+        sec._misses = 0
+        sec._errors = 0
+        sec._rejected = 0
+        sec._lock = threading.Lock()
+        return sec
+
+    def test_tampered_payload_is_rejected_without_executing(self):
+        """The evil pickle never runs — get() returns None and counts a rejection."""
+        import pickle
+
+        secondary = self._make_sec()
 
         class _Evil:
             def __reduce__(self):
                 return (_pwn_marker, ())
 
         k = _key(query="untrusted")
+        # Raw pickle — no HMAC envelope prefix, so _unseal rejects it.
         secondary._client.setex(secondary._entry_key(k), 60, pickle.dumps(_Evil()))
 
         before = _PWNED_COUNTER[0]
-        secondary.get(k)
+        got = secondary.get(k)
         after = _PWNED_COUNTER[0]
 
-        assert after > before, (
-            "Expected current implementation to have executed the tampered "
-            "pickle payload during get(). If this failed, the hardening fix "
-            "may have landed — flip this assertion to assert equality."
+        assert got is None
+        assert after == before, (
+            "Envelope-less payload must be rejected BEFORE pickle.loads. "
+            "_pwn_marker ran — hardening fix regressed."
         )
+        assert secondary.stats()["redis_rejected"] == 1
+
+    def test_envelope_signed_with_wrong_key_is_rejected(self):
+        """A payload signed by a different signing key fails HMAC verification."""
+        from hindsight_api.engine.search.recall_cache import _seal
+
+        victim = self._make_sec(signing_key=b"victim-key-at-least-16-bytes-long")
+        k = _key(query="wrong-key scenario")
+
+        # Attacker-held key — signs a benign-looking payload that our victim
+        # cache would otherwise accept.
+        attacker_sealed = _seal(b"attacker-key-at-least-16-bytes-long", b"some payload")
+        victim._client.setex(victim._entry_key(k), 60, attacker_sealed)
+
+        assert victim.get(k) is None
+        assert victim.stats()["redis_rejected"] == 1
+
+    def test_truncated_envelope_rejected(self):
+        """Payload too short to contain a 32-byte MAC is rejected cleanly."""
+        secondary = self._make_sec()
+        k = _key(query="truncated")
+        secondary._client.setex(secondary._entry_key(k), 60, b"v1short")
+        assert secondary.get(k) is None
+        assert secondary.stats()["redis_rejected"] == 1
+
+    def test_roundtrip_with_signed_envelope(self):
+        """Sanity — a round trip through put/get still works under the envelope."""
+        secondary = self._make_sec()
+        k = _key(query="clean roundtrip")
+        secondary.put(k, {"answer": 42})
+        assert secondary.get(k) == {"answer": 42}
+        assert secondary.stats()["redis_rejected"] == 0
+
+    def test_constructor_rejects_short_or_missing_signing_key(self):
+        """§10 — the Redis secondary refuses to construct without a real key."""
+        from hindsight_api.engine.search.recall_cache import RedisSecondaryCache
+
+        for bad in (b"", b"too-short"):
+            with pytest.raises(RuntimeError, match="signing key"):
+                RedisSecondaryCache(url="redis://localhost:6379/0", signing_key=bad)

@@ -450,12 +450,26 @@ class MemoryEngine(MemoryEngineInterface):
 
             secondary = None
             if config.recall_cache_redis_url:
+                # Hard-fail on missing signing key — silent downgrade to
+                # in-memory-only would leave operators thinking they have
+                # cross-replica sharing when they don't.
+                if not config.recall_cache_signing_key:
+                    raise RuntimeError(
+                        "HINDSIGHT_API_RECALL_CACHE_REDIS_URL is set but "
+                        "HINDSIGHT_API_RECALL_CACHE_SIGNING_KEY is not. The Redis "
+                        "secondary uses HMAC-authenticated envelopes; a high-entropy "
+                        "signing key (>= 16 bytes, same across all replicas) is required."
+                    )
                 try:
                     secondary = RedisSecondaryCache(
                         url=config.recall_cache_redis_url,
+                        signing_key=config.recall_cache_signing_key.encode("utf-8"),
                         ttl_seconds=config.recall_cache_ttl_seconds,
                     )
                     logger.info("Recall cache Redis secondary configured at %s", config.recall_cache_redis_url)
+                except RuntimeError:
+                    # Signing-key policy violations should fail startup.
+                    raise
                 except Exception as exc:
                     logger.warning("Redis secondary init failed, using local cache only: %s", exc)
 
