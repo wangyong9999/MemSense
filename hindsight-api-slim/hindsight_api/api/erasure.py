@@ -80,10 +80,24 @@ def register_erasure_route(app: FastAPI) -> None:
                 request_context=request_context,
             )
         except AuthenticationError:
+            # Auth failures are not erase attempts — do not emit gdpr audit.
             raise
         except HTTPException:
             raise
         except Exception as exc:
+            # Compliance requires an audit record for every erase ATTEMPT,
+            # including failures — otherwise a failed erase is indistinguishable
+            # from one that was never initiated.
+            if audit_logger is not None:
+                audit_logger.log_fire_and_forget(
+                    AuditEntry(
+                        action="gdpr_erase_failed",
+                        transport="http",
+                        bank_id=bank_id,
+                        request={"drop_bank": drop_bank},
+                        metadata={"error_type": type(exc).__name__},
+                    )
+                )
             raise_opaque_500(f"erase_bank({bank_id!r})", exc)
 
         response = ErasureResponse(

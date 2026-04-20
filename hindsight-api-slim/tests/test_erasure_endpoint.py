@@ -178,13 +178,8 @@ def test_erase_forwards_authentication_error_as_401():
     assert resp.status_code == 401
 
 
-@pytest.mark.xfail(
-    reason="On delete_bank exception the audit entry is never emitted. Compliance "
-    "requires a 'gdpr_erase_failed' record regardless of success. See "
-    "FIX_PLAN_HARDENING.md §3.",
-    strict=True,
-)
 def test_erase_emits_audit_entry_even_on_failure():
+    """Compliance requires every erase attempt to be audited — including failures."""
     app, memory, audit = _build_app()
     memory.delete_bank = AsyncMock(side_effect=RuntimeError("disk full"))
     register_erasure_route(app)
@@ -192,10 +187,33 @@ def test_erase_emits_audit_entry_even_on_failure():
 
     resp = client.post("/v1/default/banks/bz/erase")
     assert resp.status_code == 500
+
     audit.log_fire_and_forget.assert_called_once()
     entry = audit.log_fire_and_forget.call_args.args[0]
-    assert entry.action in ("gdpr_erase_failed", "gdpr_erase")
+    assert entry.action == "gdpr_erase_failed"
     assert entry.bank_id == "bz"
+    assert entry.request == {"drop_bank": False}
+    assert entry.metadata.get("error_type") == "RuntimeError"
+
+
+def test_erase_no_audit_emitted_on_authentication_error():
+    """An auth failure is not an erase attempt — no gdpr audit entry."""
+    from hindsight_api.extensions import AuthenticationError
+
+    app, memory, audit = _build_app()
+    memory.delete_bank = AsyncMock(side_effect=AuthenticationError("bad key"))
+    register_erasure_route(app)
+
+    from starlette.responses import JSONResponse
+
+    @app.exception_handler(AuthenticationError)
+    async def _h(request, exc):
+        return JSONResponse(status_code=401, content={"detail": str(exc)})
+
+    client = TestClient(app)
+    resp = client.post("/v1/default/banks/bz/erase")
+    assert resp.status_code == 401
+    audit.log_fire_and_forget.assert_not_called()
 
 
 def test_erase_drop_bank_true_removes_bank_shell():
