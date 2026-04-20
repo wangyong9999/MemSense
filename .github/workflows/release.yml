@@ -110,8 +110,10 @@ jobs:
 
   release-typescript-client:
     runs-on: ubuntu-latest
-    # MemSense: publish only from the upstream repo; forks skip.
-    if: github.repository == 'vectorize-io/hindsight'
+    # MemSense: upstream publishes @vectorize-io/*, our fork publishes
+    # @memsense/* — NPM_TOKEN in the 'npm' environment scopes which registry
+    # each side targets.
+    if: github.repository == 'vectorize-io/hindsight' || github.repository == 'wangyong9999/MemSense'
     environment: npm
 
     steps:
@@ -161,8 +163,10 @@ jobs:
 
   release-hindsight-all-npm:
     runs-on: ubuntu-latest
-    # MemSense: publish only from the upstream repo; forks skip.
-    if: github.repository == 'vectorize-io/hindsight'
+    # MemSense: upstream publishes @vectorize-io/*, our fork publishes
+    # @memsense/* — NPM_TOKEN in the 'npm' environment scopes which registry
+    # each side targets.
+    if: github.repository == 'vectorize-io/hindsight' || github.repository == 'wangyong9999/MemSense'
     environment: npm
 
     steps:
@@ -212,8 +216,10 @@ jobs:
 
   release-control-plane:
     runs-on: ubuntu-latest
-    # MemSense: publish only from the upstream repo; forks skip.
-    if: github.repository == 'vectorize-io/hindsight'
+    # MemSense: upstream publishes @vectorize-io/*, our fork publishes
+    # @memsense/* — NPM_TOKEN in the 'npm' environment scopes which registry
+    # each side targets.
+    if: github.repository == 'vectorize-io/hindsight' || github.repository == 'wangyong9999/MemSense'
     environment: npm
 
     steps:
