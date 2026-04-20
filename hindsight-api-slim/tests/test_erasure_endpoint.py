@@ -86,14 +86,18 @@ def test_erase_emits_gdpr_audit_entry():
 
 
 def test_erase_surfaces_500_on_engine_failure():
+    """5xx detail is opaque — exception message never surfaces to caller."""
     app, memory, _ = _build_app()
-    memory.delete_bank = AsyncMock(side_effect=RuntimeError("boom"))
+    memory.delete_bank = AsyncMock(side_effect=RuntimeError("boom /etc/secrets"))
     register_erasure_route(app)
     client = TestClient(app)
 
     resp = client.post("/v1/default/banks/my-bank/erase")
     assert resp.status_code == 500
-    assert "boom" in resp.json()["detail"]
+    detail = resp.json()["detail"]
+    assert "boom" not in detail
+    assert "/etc/secrets" not in detail
+    assert detail.startswith("internal error (ref: ")
 
 
 def test_dispatcher_noop_when_flag_off():
@@ -217,6 +221,6 @@ def test_erase_does_not_expose_internal_traceback():
     detail = resp.json().get("detail", "")
     assert "Traceback" not in detail
     assert 'File "' not in detail
-    # Current impl surfaces the exception message — acceptable for now but
-    # tracked by FIX_PLAN_HARDENING.md §7 (sanitize error responses).
-    assert "internal path" in detail
+    assert "internal path" not in detail
+    assert "/etc/secrets" not in detail
+    assert detail.startswith("internal error (ref: ")

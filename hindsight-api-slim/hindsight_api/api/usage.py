@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field
 
 from ..extensions import AuthenticationError
 from ..models import RequestContext
+from ._memsense_errors import raise_opaque_500
 
 logger = logging.getLogger(__name__)
 
@@ -125,8 +126,7 @@ def register_usage_route(app: FastAPI) -> None:
         except (AuthenticationError, HTTPException):
             raise
         except Exception as exc:
-            logger.error("usage query failed: %s", exc, exc_info=True)
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
+            raise_opaque_500("tenant_usage_query", exc)
 
         groups = [
             UsageGroup(

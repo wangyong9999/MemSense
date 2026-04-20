@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 from ..engine.audit import AuditEntry
 from ..extensions import AuthenticationError
 from ..models import RequestContext
+from ._memsense_errors import raise_opaque_500
 
 logger = logging.getLogger(__name__)
 
@@ -83,8 +84,7 @@ def register_erasure_route(app: FastAPI) -> None:
         except HTTPException:
             raise
         except Exception as exc:
-            logger.error("erase_bank failed for %s: %s", bank_id, exc, exc_info=True)
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
+            raise_opaque_500(f"erase_bank({bank_id!r})", exc)
 
         response = ErasureResponse(
             success=True,
