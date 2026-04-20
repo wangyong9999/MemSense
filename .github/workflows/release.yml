@@ -53,11 +53,12 @@ jobs:
       working-directory: ./hindsight-embed
       run: uv build --out-dir dist
 
-    # Publish in order (client and api-slim first, then api/all wrappers which depend on them)
-    # MemSense: each step gated per-repo. Our fork ships PyPI packages as
-    # memsense-* one at a time, as Pending Publishers are registered.
+    # Publish in order (client and api-slim first, then api/all wrappers which depend on them).
+    # MemSense: all 6 packages publish on both upstream and our fork — every
+    # package has a PyPI Pending Publisher registered. From the fork the
+    # wheels carry memsense-* names (see pyproject.toml); upstream still
+    # ships hindsight-*.
     - name: Publish hindsight-client to PyPI
-      if: github.repository == 'vectorize-io/hindsight'
       uses: pypa/gh-action-pypi-publish@release/v1
       with:
         packages-dir: ./hindsight-clients/python/dist
@@ -70,28 +71,24 @@ jobs:
         skip-existing: true
 
     - name: Publish hindsight-api to PyPI
-      if: github.repository == 'vectorize-io/hindsight'
       uses: pypa/gh-action-pypi-publish@release/v1
       with:
         packages-dir: ./hindsight-api/dist
         skip-existing: true
 
     - name: Publish hindsight-all to PyPI
-      if: github.repository == 'vectorize-io/hindsight'
       uses: pypa/gh-action-pypi-publish@release/v1
       with:
         packages-dir: ./hindsight-all/dist
         skip-existing: true
 
     - name: Publish hindsight-all-slim to PyPI
-      if: github.repository == 'vectorize-io/hindsight'
       uses: pypa/gh-action-pypi-publish@release/v1
       with:
         packages-dir: ./hindsight-all-slim/dist
         skip-existing: true
 
     - name: Publish hindsight-embed to PyPI
-      if: github.repository == 'vectorize-io/hindsight'
       uses: pypa/gh-action-pypi-publish@release/v1
       with:
         packages-dir: ./hindsight-embed/dist
