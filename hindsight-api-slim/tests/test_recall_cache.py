@@ -720,12 +720,18 @@ class TestRedisCrossReplica:
         assert cache_b.stats()["secondary_hits"] == 1
 
     def test_invalidate_on_replica_a_invalidates_replica_b(self):
+        """§5 — Replica B's local entry must expire once replica A invalidates,
+        even if replica B never saw a local invalidate event.
+        """
         make = self._shared_backing()
         sec_a = make()
         sec_b = make()
 
         cache_a = RecallCache(max_size=10, ttl_seconds=60, secondary=sec_a)
+        # Set replica B's cluster-gen TTL to 0 so the fix is observable
+        # without waiting — in prod the default 2s is fine.
         cache_b = RecallCache(max_size=10, ttl_seconds=60, secondary=sec_b)
+        cache_b._CLUSTER_GEN_TTL_SECONDS = 0.0
 
         k = _key(query="soon invalid", bank_id="bInv")
         cache_a.put(k, "stale")
@@ -734,17 +740,9 @@ class TestRedisCrossReplica:
         # Replica A invalidates, Redis gen bumps globally.
         cache_a.invalidate_bank("bInv")
 
-        # Replica B has the entry in its local cache, but the ENTRY's stored
-        # local-generation is still aligned locally. The correct semantic
-        # here is what the fix plan targets — today replica B still serves
-        # the local entry until someone retains on B or calls invalidate on
-        # B directly. Document the observable behavior so regressions are
-        # caught.
-        still_local = cache_b.get(k)
-        # Expected after fix: should be None. Current: returns "stale" from
-        # local because Redis gen mismatch isn't checked for already-promoted
-        # entries. See FIX_PLAN_HARDENING.md §5.
-        assert still_local in ("stale", None)
+        # Replica B re-checks cluster_gen, detects mismatch, evicts.
+        assert cache_b.get(k) is None
+        assert cache_b.stats()["cluster_gen_evictions"] >= 1
 
     def test_write_through_puts_appear_immediately_on_peers(self):
         make = self._shared_backing()
@@ -761,6 +759,64 @@ class TestRedisCrossReplica:
 
         assert cache_b.get(k1) == "r1"
         assert cache_b.get(k2) == "r2"
+
+    def test_cluster_gen_cache_avoids_redis_rtt_under_hot_reads(self):
+        """Hot loop with a long cluster-gen TTL should hit Redis once per bank."""
+        make = self._shared_backing()
+        sec_a = make()
+        sec_b = make()
+
+        cache_a = RecallCache(max_size=10, ttl_seconds=60, secondary=sec_a)
+        cache_b = RecallCache(max_size=10, ttl_seconds=60, secondary=sec_b)
+        cache_b._CLUSTER_GEN_TTL_SECONDS = 60.0  # very long for this test
+
+        k = _key(query="hot", bank_id="bHot")
+        cache_a.put(k, "warm")
+
+        # First get primes the cluster_gen cache on replica B.
+        assert cache_b.get(k) == "warm"
+
+        # Wrap sec_b._current_gen to count calls.
+        orig = sec_b._current_gen
+        calls = []
+
+        def counting(bank_id):
+            calls.append(bank_id)
+            return orig(bank_id)
+
+        sec_b._current_gen = counting
+
+        # 50 subsequent gets should all be served from cache without a
+        # single Redis gen fetch (TTL is 60s, test runs in milliseconds).
+        for _ in range(50):
+            assert cache_b.get(k) == "warm"
+        assert calls == []
+
+    def test_cluster_gen_ttl_expiry_triggers_refresh(self):
+        """After TTL expires, the next get re-fetches gen from Redis."""
+        make = self._shared_backing()
+        sec_a = make()
+        sec_b = make()
+        cache_a = RecallCache(max_size=10, ttl_seconds=60, secondary=sec_a)
+        cache_b = RecallCache(max_size=10, ttl_seconds=60, secondary=sec_b)
+        cache_b._CLUSTER_GEN_TTL_SECONDS = 0.0  # every get refreshes
+
+        k = _key(query="expiring", bank_id="bExp")
+        cache_a.put(k, "v")
+        assert cache_b.get(k) == "v"
+
+        orig = sec_b._current_gen
+        calls = []
+
+        def counting(bank_id):
+            calls.append(bank_id)
+            return orig(bank_id)
+
+        sec_b._current_gen = counting
+
+        for _ in range(3):
+            cache_b.get(k)
+        assert len(calls) == 3
 
 
 _PWNED_COUNTER = [0]
@@ -816,8 +872,7 @@ class TestRedisSecondaryPayloadSafety:
 
         assert got is None
         assert after == before, (
-            "Envelope-less payload must be rejected BEFORE pickle.loads. "
-            "_pwn_marker ran — hardening fix regressed."
+            "Envelope-less payload must be rejected BEFORE pickle.loads. _pwn_marker ran — hardening fix regressed."
         )
         assert secondary.stats()["redis_rejected"] == 1
 

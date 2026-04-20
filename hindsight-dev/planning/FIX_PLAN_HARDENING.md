@@ -1,10 +1,26 @@
-# Hardening fix plan
+# Hardening fix plan (RESOLVED for v0.6)
 
 Issues surfaced while adding targeted tests for the retain pipeline,
-recall/search pipeline, and memory lifecycle. None of these were fixed in
-this pass — each has a proof-of-existence test (xfail with `strict=True`
-or a documenting assertion) that will auto-flip to pass once fixed, so a
-regression watcher is already in place.
+recall/search pipeline, and memory lifecycle. **All P0 and P1 items are
+now fixed on `main`** — the xfail regression watchers have been flipped
+to hard assertions. §6 and §9 remain deferred per original scoping.
+
+| # | Priority | Status | Commit |
+|---|---|---|---|
+| §1 entities bypass | P0 | **fixed** | `95667b9e` |
+| §2 usage auth | P0 | **fixed** | `e4ba3d8e` |
+| §3 erase audit on failure | P0 | **fixed** | `c52321bb` |
+| §4 + §10 pickle RCE / signing key | P0 | **fixed** | `123c3bc0` |
+| §5 cross-replica generation | P1 | **fixed** | next commit |
+| §7 5xx sanitize | P2 | **fixed** (foundation) | `357f748f` |
+| §8 entity regression | P1 | **fixed** (bundled with §1) | `95667b9e` |
+| §6 stats observability | P2 | deferred | — |
+| §9 schema isolation | P1 | deferred (upstream entanglement) | — |
+
+Original plan content preserved below for reference.
+
+---
+
 
 Priority buckets:
 

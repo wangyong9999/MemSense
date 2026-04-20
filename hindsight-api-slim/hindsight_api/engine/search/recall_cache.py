@@ -288,6 +288,7 @@ class _CacheEntry:
     created_at: float
     bank_generation: int
     query_tokens: frozenset[str]  # pre-computed for Tier 1 fuzzy matching
+    cluster_generation: int | None = None  # Redis gen at put time (None when no secondary)
 
 
 # ---------------------------------------------------------------------------
@@ -327,6 +328,11 @@ class RecallCache:
         cache.put(key, result)
     """
 
+    # How long to trust a cached cluster generation before re-fetching from
+    # Redis. Short enough to keep cross-replica invalidation windows tight,
+    # long enough to avoid a Redis GET on every local hit under hot load.
+    _CLUSTER_GEN_TTL_SECONDS = 2.0
+
     def __init__(
         self,
         max_size: int = 256,
@@ -341,6 +347,9 @@ class RecallCache:
         self._fuzzy_min_tokens = fuzzy_min_tokens
         self._cache: OrderedDict[RecallCacheKey, _CacheEntry] = OrderedDict()
         self._bank_generations: dict[str, int] = {}
+        # bank_id -> (cluster_gen, fetched_at) — tiny TTL cache of the Redis
+        # generation counter so we don't pay a Redis RTT on every local hit.
+        self._cluster_gen_cache: dict[str, tuple[int, float]] = {}
         self._lock = threading.Lock()
         self._secondary = secondary
         # Stats
@@ -348,6 +357,7 @@ class RecallCache:
         self._fuzzy_hits = 0
         self._secondary_hits = 0
         self._misses = 0
+        self._cluster_gen_evictions = 0
 
     # --- Tier 0: exact match ---
 
@@ -442,6 +452,7 @@ class RecallCache:
         to the Redis secondary so other replicas can Tier-0 hit.
         """
         query_tokens = _tokenize_query(key.query_normalized)
+        cluster_gen = self._get_cluster_gen(key.bank_id)
 
         with self._lock:
             current_gen = self._bank_generations.get(key.bank_id, 0)
@@ -453,6 +464,7 @@ class RecallCache:
                     created_at=time.time(),
                     bank_generation=current_gen,
                     query_tokens=query_tokens,
+                    cluster_generation=cluster_gen,
                 )
             else:
                 while len(self._cache) >= self._max_size:
@@ -462,6 +474,7 @@ class RecallCache:
                     created_at=time.time(),
                     bank_generation=current_gen,
                     query_tokens=query_tokens,
+                    cluster_generation=cluster_gen,
                 )
 
         if replicate_to_secondary and self._secondary is not None:
@@ -479,6 +492,10 @@ class RecallCache:
         """
         with self._lock:
             self._bank_generations[bank_id] = self._bank_generations.get(bank_id, 0) + 1
+            # Drop any cached cluster_gen for this bank so the next read
+            # re-fetches from Redis (keeps cross-replica windows tight after
+            # any invalidation on this replica).
+            self._cluster_gen_cache.pop(bank_id, None)
         if self._secondary is not None:
             self._secondary.invalidate_bank(bank_id)
 
@@ -487,10 +504,12 @@ class RecallCache:
         with self._lock:
             self._cache.clear()
             self._bank_generations.clear()
+            self._cluster_gen_cache.clear()
             self._hits = 0
             self._fuzzy_hits = 0
             self._secondary_hits = 0
             self._misses = 0
+            self._cluster_gen_evictions = 0
         if self._secondary is not None:
             self._secondary.clear()
 
@@ -502,6 +521,7 @@ class RecallCache:
                 "exact_hits": self._hits,
                 "fuzzy_hits": self._fuzzy_hits,
                 "secondary_hits": self._secondary_hits,
+                "cluster_gen_evictions": self._cluster_gen_evictions,
                 "misses": self._misses,
                 "hit_rate": round(
                     (self._hits + self._fuzzy_hits + self._secondary_hits) / total,
@@ -521,11 +541,40 @@ class RecallCache:
     # --- Internal ---
 
     def _is_valid(self, key: RecallCacheKey, entry: _CacheEntry) -> bool:
-        """Check TTL and bank generation."""
+        """Check TTL and bank generation (local + cluster-wide)."""
         if time.time() - entry.created_at > self._ttl_seconds:
             return False
         current_gen = self._bank_generations.get(key.bank_id, 0)
-        return entry.bank_generation == current_gen
+        if entry.bank_generation != current_gen:
+            return False
+        # Cluster generation: if we wrote an entry while the secondary was
+        # active, check it still matches — otherwise a peer replica's
+        # invalidation is silently ignored here.
+        if entry.cluster_generation is not None and self._secondary is not None:
+            cluster_gen = self._get_cluster_gen(key.bank_id)
+            if cluster_gen is not None and entry.cluster_generation != cluster_gen:
+                self._cluster_gen_evictions += 1
+                return False
+        return True
+
+    def _get_cluster_gen(self, bank_id: str) -> int | None:
+        """Return the cluster-wide Redis generation for ``bank_id``, cached
+        for ``_CLUSTER_GEN_TTL_SECONDS`` so recall hot loops don't pay a
+        Redis RTT on every hit. Returns ``None`` if the secondary is not
+        configured or transiently fails.
+        """
+        if self._secondary is None:
+            return None
+        cached = self._cluster_gen_cache.get(bank_id)
+        now = time.time()
+        if cached is not None and now - cached[1] < self._CLUSTER_GEN_TTL_SECONDS:
+            return cached[0]
+        try:
+            gen = self._secondary._current_gen(bank_id)
+        except Exception:
+            return cached[0] if cached is not None else None
+        self._cluster_gen_cache[bank_id] = (gen, now)
+        return gen
 
 
 # ---------------------------------------------------------------------------
