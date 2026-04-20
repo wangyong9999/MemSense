@@ -1,7 +1,7 @@
 {
-  "name": "@vectorize-io/hindsight-all",
+  "name": "@memsense/hindsight-all",
   "version": "0.5.4",
-  "description": "Node.js programmatic lifecycle manager for Hindsight — embeds a local hindsight daemon in a Node application. Pair with @vectorize-io/hindsight-client for memory operations.",
+  "description": "Node.js programmatic lifecycle manager for Hindsight — embeds a local hindsight daemon in a Node application. Pair with @memsense/hindsight-client for memory operations.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "type": "module",

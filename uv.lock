@@ -18,13 +18,13 @@ resolution-markers = [
 
 [manifest]
 members = [
-    "hindsight-all",
-    "hindsight-all-slim",
-    "hindsight-api",
-    "hindsight-api-slim",
-    "hindsight-client",
     "hindsight-dev",
-    "hindsight-embed",
+    "memsense-all",
+    "memsense-all-slim",
+    "memsense-api",
+    "memsense-api-slim",
+    "memsense-client",
+    "memsense-embed",
 ]
 
 [[package]]
@@ -1492,322 +1492,12 @@ wheels = [
 ]
 
 [[package]]
-name = "hindsight-all"
-version = "0.5.4"
-source = { editable = "hindsight-all" }
-dependencies = [
-    { name = "hindsight-api-slim", extra = ["all"] },
-    { name = "hindsight-client" },
-    { name = "hindsight-embed" },
-]
-
-[package.optional-dependencies]
-local-llm = [
-    { name = "hindsight-api-slim", extra = ["local-llm"] },
-]
-test = [
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "hindsight-api-slim", extras = ["all"], editable = "hindsight-api-slim" },
-    { name = "hindsight-api-slim", extras = ["local-llm"], marker = "extra == 'local-llm'", editable = "hindsight-api-slim" },
-    { name = "hindsight-client", editable = "hindsight-clients/python" },
-    { name = "hindsight-embed", editable = "hindsight-embed" },
-    { name = "pytest", marker = "extra == 'test'", specifier = ">=7.0.0" },
-    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.21.0" },
-]
-provides-extras = ["local-llm", "test"]
-
-[[package]]
-name = "hindsight-all-slim"
-version = "0.5.4"
-source = { editable = "hindsight-all-slim" }
-dependencies = [
-    { name = "hindsight-api-slim" },
-    { name = "hindsight-client" },
-    { name = "hindsight-embed" },
-]
-
-[package.optional-dependencies]
-test = [
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "hindsight-api-slim", editable = "hindsight-api-slim" },
-    { name = "hindsight-client", editable = "hindsight-clients/python" },
-    { name = "hindsight-embed", editable = "hindsight-embed" },
-    { name = "pytest", marker = "extra == 'test'", specifier = ">=7.0.0" },
-    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.21.0" },
-]
-provides-extras = ["test"]
-
-[[package]]
-name = "hindsight-api"
-version = "0.5.4"
-source = { editable = "hindsight-api" }
-dependencies = [
-    { name = "hindsight-api-slim", extra = ["all"] },
-]
-
-[package.metadata]
-requires-dist = [{ name = "hindsight-api-slim", extras = ["all"], editable = "hindsight-api-slim" }]
-
-[[package]]
-name = "hindsight-api-slim"
-version = "0.5.4"
-source = { editable = "hindsight-api-slim" }
-dependencies = [
-    { name = "aiohttp" },
-    { name = "alembic" },
-    { name = "anthropic" },
-    { name = "asyncpg" },
-    { name = "authlib" },
-    { name = "boto3" },
-    { name = "claude-agent-sdk" },
-    { name = "cohere" },
-    { name = "cryptography" },
-    { name = "dateparser" },
-    { name = "fastapi", extra = ["standard"] },
-    { name = "fastmcp" },
-    { name = "filelock" },
-    { name = "google-auth" },
-    { name = "google-genai" },
-    { name = "greenlet" },
-    { name = "httpx" },
-    { name = "langchain-core" },
-    { name = "langchain-text-splitters" },
-    { name = "langsmith" },
-    { name = "litellm" },
-    { name = "markitdown", extra = ["docx", "pdf", "pptx", "xls", "xlsx"] },
-    { name = "obstore" },
-    { name = "openai" },
-    { name = "opentelemetry-api" },
-    { name = "opentelemetry-exporter-otlp-proto-http" },
-    { name = "opentelemetry-exporter-prometheus" },
-    { name = "opentelemetry-instrumentation-fastapi" },
-    { name = "opentelemetry-sdk" },
-    { name = "opentelemetry-semantic-conventions" },
-    { name = "orjson" },
-    { name = "pgvector" },
-    { name = "pillow" },
-    { name = "protobuf" },
-    { name = "psycopg2-binary" },
-    { name = "pyasn1" },
-    { name = "pydantic" },
-    { name = "pygments" },
-    { name = "pyjwt", extra = ["crypto"] },
-    { name = "python-dateutil" },
-    { name = "python-dotenv" },
-    { name = "python-multipart" },
-    { name = "rich" },
-    { name = "sqlalchemy" },
-    { name = "tiktoken" },
-    { name = "tornado" },
-    { name = "typer" },
-    { name = "urllib3" },
-    { name = "uvicorn" },
-    { name = "uvloop", marker = "sys_platform != 'win32'" },
-    { name = "winloop", marker = "sys_platform == 'win32'" },
-    { name = "wsproto" },
-]
-
-[package.optional-dependencies]
-all = [
-    { name = "einops" },
-    { name = "flashrank" },
-    { name = "mlx" },
-    { name = "mlx-lm" },
-    { name = "pg0-embedded" },
-    { name = "safetensors" },
-    { name = "sentence-transformers" },
-    { name = "torch", version = "2.10.0", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform == 'darwin'" },
-    { name = "torch", version = "2.10.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform != 'darwin'" },
-    { name = "transformers" },
-]
-cache-redis = [
-    { name = "redis" },
-]
-embedded-db = [
-    { name = "pg0-embedded" },
-]
-local-llm = [
-    { name = "huggingface-hub" },
-    { name = "llama-cpp-python", extra = ["server"] },
-]
-local-ml = [
-    { name = "einops" },
-    { name = "flashrank" },
-    { name = "mlx" },
-    { name = "mlx-lm" },
-    { name = "safetensors" },
-    { name = "sentence-transformers" },
-    { name = "torch", version = "2.10.0", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform == 'darwin'" },
-    { name = "torch", version = "2.10.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform != 'darwin'" },
-    { name = "transformers" },
-]
-test = [
-    { name = "fakeredis" },
-    { name = "filelock" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "pytest-timeout" },
-    { name = "pytest-xdist" },
-    { name = "testcontainers" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "filelock" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "pytest-rerunfailures" },
-    { name = "pytest-timeout" },
-    { name = "pytest-xdist" },
-    { name = "python-dotenv" },
-    { name = "ruff" },
-    { name = "testcontainers" },
-    { name = "ty" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "aiohttp", specifier = ">=3.13.3" },
-    { name = "alembic", specifier = ">=1.17.1" },
-    { name = "anthropic", specifier = ">=0.40.0" },
-    { name = "asyncpg", specifier = ">=0.29.0" },
-    { name = "authlib", specifier = ">=1.6.9" },
-    { name = "boto3", specifier = ">=1.42.74" },
-    { name = "claude-agent-sdk", specifier = ">=0.1.27" },
-    { name = "cohere", specifier = ">=5.0.0" },
-    { name = "cryptography", specifier = ">=46.0.6" },
-    { name = "dateparser", specifier = ">=1.2.2" },
-    { name = "einops", marker = "extra == 'local-ml'", specifier = ">=0.8.2" },
-    { name = "fakeredis", marker = "extra == 'test'", specifier = ">=2.20.0" },
-    { name = "fastapi", extras = ["standard"], specifier = ">=0.120.3" },
-    { name = "fastmcp", specifier = ">=3.2.0" },
-    { name = "filelock", specifier = ">=3.20.1" },
-    { name = "filelock", marker = "extra == 'test'", specifier = ">=3.20.1" },
-    { name = "flashrank", marker = "extra == 'local-ml'", specifier = ">=0.2.0" },
-    { name = "google-auth", specifier = ">=2.0.0" },
-    { name = "google-genai", specifier = ">=1.0.0" },
-    { name = "greenlet", specifier = ">=3.2.4,<3.4.0" },
-    { name = "hindsight-api-slim", extras = ["local-ml", "embedded-db"], marker = "extra == 'all'" },
-    { name = "httpx", specifier = ">=0.27.0" },
-    { name = "huggingface-hub", marker = "extra == 'local-llm'", specifier = ">=0.20.0" },
-    { name = "langchain-core", specifier = ">=1.2.22" },
-    { name = "langchain-text-splitters", specifier = ">=0.3.0" },
-    { name = "langsmith", specifier = ">=0.6.3" },
-    { name = "litellm", specifier = ">=1.83.0" },
-    { name = "llama-cpp-python", extras = ["server"], marker = "extra == 'local-llm'", specifier = ">=0.3.0" },
-    { name = "markitdown", extras = ["pdf", "docx", "pptx", "xlsx", "xls"], specifier = ">=0.1.4" },
-    { name = "mlx", marker = "extra == 'local-ml'", specifier = ">=0.31.0" },
-    { name = "mlx-lm", marker = "extra == 'local-ml'", specifier = ">=0.31.1" },
-    { name = "obstore", specifier = ">=0.4.0" },
-    { name = "openai", specifier = ">=1.0.0" },
-    { name = "opentelemetry-api", specifier = ">=1.20.0" },
-    { name = "opentelemetry-exporter-otlp-proto-http", specifier = ">=1.20.0" },
-    { name = "opentelemetry-exporter-prometheus", specifier = ">=0.41b0" },
-    { name = "opentelemetry-instrumentation-fastapi", specifier = ">=0.41b0" },
-    { name = "opentelemetry-sdk", specifier = ">=1.20.0" },
-    { name = "opentelemetry-semantic-conventions", specifier = ">=0.41b0" },
-    { name = "orjson", specifier = ">=3.11.6" },
-    { name = "pg0-embedded", marker = "extra == 'embedded-db'", specifier = ">=0.11.0" },
-    { name = "pgvector", specifier = ">=0.4.1" },
-    { name = "pillow", specifier = ">=12.1.1" },
-    { name = "protobuf", specifier = ">=6.33.5" },
-    { name = "psycopg2-binary", specifier = ">=2.9.11" },
-    { name = "pyasn1", specifier = ">=0.6.3" },
-    { name = "pydantic", specifier = ">=2.0.0" },
-    { name = "pygments", specifier = ">=2.20.0" },
-    { name = "pyjwt", specifier = ">=2.12.0" },
-    { name = "pyjwt", extras = ["crypto"], specifier = ">=2.8.0" },
-    { name = "pytest", marker = "extra == 'test'", specifier = ">=7.0.0" },
-    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.21.0" },
-    { name = "pytest-timeout", marker = "extra == 'test'", specifier = ">=2.4.0" },
-    { name = "pytest-xdist", marker = "extra == 'test'", specifier = ">=3.0.0" },
-    { name = "python-dateutil", specifier = ">=2.8.0" },
-    { name = "python-dotenv", specifier = ">=1.0.0" },
-    { name = "python-multipart", specifier = ">=0.0.22" },
-    { name = "redis", marker = "extra == 'cache-redis'", specifier = ">=5.0.0" },
-    { name = "rich", specifier = ">=13.0.0" },
-    { name = "safetensors", marker = "extra == 'local-ml'", specifier = ">=0.6.2" },
-    { name = "sentence-transformers", marker = "extra == 'local-ml'", specifier = ">=3.3.0" },
-    { name = "sqlalchemy", specifier = ">=2.0.44" },
-    { name = "testcontainers", marker = "extra == 'test'", specifier = ">=4.0.0" },
-    { name = "tiktoken", specifier = ">=0.12.0" },
-    { name = "torch", marker = "extra == 'local-ml'", specifier = ">=2.6.0", index = "https://download.pytorch.org/whl/cpu" },
-    { name = "tornado", specifier = ">=6.5.5" },
-    { name = "transformers", marker = "extra == 'local-ml'", specifier = ">=4.53.0" },
-    { name = "typer", specifier = ">=0.9.0" },
-    { name = "urllib3", specifier = ">=2.6.3" },
-    { name = "uvicorn", specifier = ">=0.38.0" },
-    { name = "uvloop", marker = "sys_platform != 'win32'", specifier = ">=0.22.1" },
-    { name = "winloop", marker = "sys_platform == 'win32'", specifier = ">=0.1.0" },
-    { name = "wsproto", specifier = ">=1.0.0" },
-]
-provides-extras = ["local-ml", "local-llm", "embedded-db", "cache-redis", "all", "test"]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "filelock", specifier = ">=3.20.1" },
-    { name = "pytest", specifier = ">=9.0.0" },
-    { name = "pytest-asyncio", specifier = ">=1.3.0" },
-    { name = "pytest-rerunfailures", specifier = ">=15.0" },
-    { name = "pytest-timeout", specifier = ">=2.4.0" },
-    { name = "pytest-xdist", specifier = ">=3.8.0" },
-    { name = "python-dotenv", specifier = ">=1.2.1" },
-    { name = "ruff", specifier = ">=0.8.0" },
-    { name = "testcontainers", specifier = ">=4.0.0" },
-    { name = "ty", specifier = ">=0.0.1" },
-]
-
-[[package]]
-name = "hindsight-client"
-version = "0.5.4"
-source = { editable = "hindsight-clients/python" }
-dependencies = [
-    { name = "aiohttp" },
-    { name = "aiohttp-retry" },
-    { name = "pydantic" },
-    { name = "python-dateutil" },
-    { name = "typing-extensions" },
-    { name = "urllib3" },
-]
-
-[package.optional-dependencies]
-test = [
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "requests" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "aiohttp", specifier = ">=3.8.4" },
-    { name = "aiohttp-retry", specifier = ">=2.8.3" },
-    { name = "pydantic", specifier = ">=2" },
-    { name = "pytest", marker = "extra == 'test'", specifier = ">=7.0.0" },
-    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.21.0" },
-    { name = "python-dateutil", specifier = ">=2.8.2" },
-    { name = "requests", marker = "extra == 'test'", specifier = ">=2.33.0" },
-    { name = "typing-extensions", specifier = ">=4.7.1" },
-    { name = "urllib3", specifier = ">=2.1.0,<3.0.0" },
-]
-provides-extras = ["test"]
-
-[[package]]
 name = "hindsight-dev"
 version = "0.5.4"
 source = { editable = "hindsight-dev" }
 dependencies = [
-    { name = "hindsight-api" },
     { name = "httpx" },
+    { name = "memsense-api" },
     { name = "openai" },
     { name = "pydantic" },
     { name = "python-fasthtml" },
@@ -1830,9 +1520,9 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "hindsight-api", editable = "hindsight-api" },
     { name = "httpx", specifier = ">=0.27.0" },
     { name = "httpx", marker = "extra == 'test'", specifier = ">=0.27.0" },
+    { name = "memsense-api", editable = "hindsight-api" },
     { name = "openai", specifier = ">=1.0.0" },
     { name = "pydantic", specifier = ">=2.0.0" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=8.0.0" },
@@ -1845,35 +1535,6 @@ provides-extras = ["test"]
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "ruff", specifier = ">=0.8.0" },
-    { name = "ty", specifier = ">=0.0.1" },
-]
-
-[[package]]
-name = "hindsight-embed"
-version = "0.5.4"
-source = { editable = "hindsight-embed" }
-dependencies = [
-    { name = "httpx" },
-    { name = "rich" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "pytest" },
-    { name = "ruff" },
-    { name = "ty" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "httpx", specifier = ">=0.27.0" },
-    { name = "rich", specifier = ">=13.0.0" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "pytest", specifier = ">=8.0.0" },
     { name = "ruff", specifier = ">=0.8.0" },
     { name = "ty", specifier = ">=0.0.1" },
 ]
@@ -2682,6 +2343,345 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/d6/54/cfe61301667036ec958cb99bd3efefba235e65cdeb9c84d24a8293ba1d90/mdurl-0.1.2.tar.gz", hash = "sha256:bb413d29f5eea38f31dd4754dd7377d4465116fb207585f97bf925588687c1ba", size = 8729, upload-time = "2022-08-14T12:40:10.846Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b3/38/89ba8ad64ae25be8de66a6d463314cf1eb366222074cfda9ee839c56a4b4/mdurl-0.1.2-py3-none-any.whl", hash = "sha256:84008a41e51615a49fc9966191ff91509e3c40b939176e643fd50a5c2196b8f8", size = 9979, upload-time = "2022-08-14T12:40:09.779Z" },
+]
+
+[[package]]
+name = "memsense-all"
+version = "0.5.4"
+source = { editable = "hindsight-all" }
+dependencies = [
+    { name = "memsense-api-slim", extra = ["all"] },
+    { name = "memsense-client" },
+    { name = "memsense-embed" },
+]
+
+[package.optional-dependencies]
+local-llm = [
+    { name = "memsense-api-slim", extra = ["local-llm"] },
+]
+test = [
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "memsense-api-slim", extras = ["all"], editable = "hindsight-api-slim" },
+    { name = "memsense-api-slim", extras = ["local-llm"], marker = "extra == 'local-llm'", editable = "hindsight-api-slim" },
+    { name = "memsense-client", editable = "hindsight-clients/python" },
+    { name = "memsense-embed", editable = "hindsight-embed" },
+    { name = "pytest", marker = "extra == 'test'", specifier = ">=7.0.0" },
+    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.21.0" },
+]
+provides-extras = ["local-llm", "test"]
+
+[[package]]
+name = "memsense-all-slim"
+version = "0.5.4"
+source = { editable = "hindsight-all-slim" }
+dependencies = [
+    { name = "memsense-api-slim" },
+    { name = "memsense-client" },
+    { name = "memsense-embed" },
+]
+
+[package.optional-dependencies]
+test = [
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "memsense-api-slim", editable = "hindsight-api-slim" },
+    { name = "memsense-client", editable = "hindsight-clients/python" },
+    { name = "memsense-embed", editable = "hindsight-embed" },
+    { name = "pytest", marker = "extra == 'test'", specifier = ">=7.0.0" },
+    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.21.0" },
+]
+provides-extras = ["test"]
+
+[[package]]
+name = "memsense-api"
+version = "0.5.4"
+source = { editable = "hindsight-api" }
+dependencies = [
+    { name = "memsense-api-slim", extra = ["all"] },
+]
+
+[package.metadata]
+requires-dist = [{ name = "memsense-api-slim", extras = ["all"], editable = "hindsight-api-slim" }]
+
+[[package]]
+name = "memsense-api-slim"
+version = "0.5.4"
+source = { editable = "hindsight-api-slim" }
+dependencies = [
+    { name = "aiohttp" },
+    { name = "alembic" },
+    { name = "anthropic" },
+    { name = "asyncpg" },
+    { name = "authlib" },
+    { name = "boto3" },
+    { name = "claude-agent-sdk" },
+    { name = "cohere" },
+    { name = "cryptography" },
+    { name = "dateparser" },
+    { name = "fastapi", extra = ["standard"] },
+    { name = "fastmcp" },
+    { name = "filelock" },
+    { name = "google-auth" },
+    { name = "google-genai" },
+    { name = "greenlet" },
+    { name = "httpx" },
+    { name = "langchain-core" },
+    { name = "langchain-text-splitters" },
+    { name = "langsmith" },
+    { name = "litellm" },
+    { name = "markitdown", extra = ["docx", "pdf", "pptx", "xls", "xlsx"] },
+    { name = "obstore" },
+    { name = "openai" },
+    { name = "opentelemetry-api" },
+    { name = "opentelemetry-exporter-otlp-proto-http" },
+    { name = "opentelemetry-exporter-prometheus" },
+    { name = "opentelemetry-instrumentation-fastapi" },
+    { name = "opentelemetry-sdk" },
+    { name = "opentelemetry-semantic-conventions" },
+    { name = "orjson" },
+    { name = "pgvector" },
+    { name = "pillow" },
+    { name = "protobuf" },
+    { name = "psycopg2-binary" },
+    { name = "pyasn1" },
+    { name = "pydantic" },
+    { name = "pygments" },
+    { name = "pyjwt", extra = ["crypto"] },
+    { name = "python-dateutil" },
+    { name = "python-dotenv" },
+    { name = "python-multipart" },
+    { name = "rich" },
+    { name = "sqlalchemy" },
+    { name = "tiktoken" },
+    { name = "tornado" },
+    { name = "typer" },
+    { name = "urllib3" },
+    { name = "uvicorn" },
+    { name = "uvloop", marker = "sys_platform != 'win32'" },
+    { name = "winloop", marker = "sys_platform == 'win32'" },
+    { name = "wsproto" },
+]
+
+[package.optional-dependencies]
+all = [
+    { name = "einops" },
+    { name = "flashrank" },
+    { name = "mlx" },
+    { name = "mlx-lm" },
+    { name = "pg0-embedded" },
+    { name = "safetensors" },
+    { name = "sentence-transformers" },
+    { name = "torch", version = "2.10.0", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform == 'darwin'" },
+    { name = "torch", version = "2.10.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform != 'darwin'" },
+    { name = "transformers" },
+]
+cache-redis = [
+    { name = "redis" },
+]
+embedded-db = [
+    { name = "pg0-embedded" },
+]
+local-llm = [
+    { name = "huggingface-hub" },
+    { name = "llama-cpp-python", extra = ["server"] },
+]
+local-ml = [
+    { name = "einops" },
+    { name = "flashrank" },
+    { name = "mlx" },
+    { name = "mlx-lm" },
+    { name = "safetensors" },
+    { name = "sentence-transformers" },
+    { name = "torch", version = "2.10.0", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform == 'darwin'" },
+    { name = "torch", version = "2.10.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform != 'darwin'" },
+    { name = "transformers" },
+]
+test = [
+    { name = "fakeredis" },
+    { name = "filelock" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "pytest-timeout" },
+    { name = "pytest-xdist" },
+    { name = "testcontainers" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "filelock" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "pytest-rerunfailures" },
+    { name = "pytest-timeout" },
+    { name = "pytest-xdist" },
+    { name = "python-dotenv" },
+    { name = "ruff" },
+    { name = "testcontainers" },
+    { name = "ty" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aiohttp", specifier = ">=3.13.3" },
+    { name = "alembic", specifier = ">=1.17.1" },
+    { name = "anthropic", specifier = ">=0.40.0" },
+    { name = "asyncpg", specifier = ">=0.29.0" },
+    { name = "authlib", specifier = ">=1.6.9" },
+    { name = "boto3", specifier = ">=1.42.74" },
+    { name = "claude-agent-sdk", specifier = ">=0.1.27" },
+    { name = "cohere", specifier = ">=5.0.0" },
+    { name = "cryptography", specifier = ">=46.0.6" },
+    { name = "dateparser", specifier = ">=1.2.2" },
+    { name = "einops", marker = "extra == 'local-ml'", specifier = ">=0.8.2" },
+    { name = "fakeredis", marker = "extra == 'test'", specifier = ">=2.20.0" },
+    { name = "fastapi", extras = ["standard"], specifier = ">=0.120.3" },
+    { name = "fastmcp", specifier = ">=3.2.0" },
+    { name = "filelock", specifier = ">=3.20.1" },
+    { name = "filelock", marker = "extra == 'test'", specifier = ">=3.20.1" },
+    { name = "flashrank", marker = "extra == 'local-ml'", specifier = ">=0.2.0" },
+    { name = "google-auth", specifier = ">=2.0.0" },
+    { name = "google-genai", specifier = ">=1.0.0" },
+    { name = "greenlet", specifier = ">=3.2.4,<3.4.0" },
+    { name = "httpx", specifier = ">=0.27.0" },
+    { name = "huggingface-hub", marker = "extra == 'local-llm'", specifier = ">=0.20.0" },
+    { name = "langchain-core", specifier = ">=1.2.22" },
+    { name = "langchain-text-splitters", specifier = ">=0.3.0" },
+    { name = "langsmith", specifier = ">=0.6.3" },
+    { name = "litellm", specifier = ">=1.83.0" },
+    { name = "llama-cpp-python", extras = ["server"], marker = "extra == 'local-llm'", specifier = ">=0.3.0" },
+    { name = "markitdown", extras = ["pdf", "docx", "pptx", "xlsx", "xls"], specifier = ">=0.1.4" },
+    { name = "memsense-api-slim", extras = ["local-ml", "embedded-db"], marker = "extra == 'all'" },
+    { name = "mlx", marker = "extra == 'local-ml'", specifier = ">=0.31.0" },
+    { name = "mlx-lm", marker = "extra == 'local-ml'", specifier = ">=0.31.1" },
+    { name = "obstore", specifier = ">=0.4.0" },
+    { name = "openai", specifier = ">=1.0.0" },
+    { name = "opentelemetry-api", specifier = ">=1.20.0" },
+    { name = "opentelemetry-exporter-otlp-proto-http", specifier = ">=1.20.0" },
+    { name = "opentelemetry-exporter-prometheus", specifier = ">=0.41b0" },
+    { name = "opentelemetry-instrumentation-fastapi", specifier = ">=0.41b0" },
+    { name = "opentelemetry-sdk", specifier = ">=1.20.0" },
+    { name = "opentelemetry-semantic-conventions", specifier = ">=0.41b0" },
+    { name = "orjson", specifier = ">=3.11.6" },
+    { name = "pg0-embedded", marker = "extra == 'embedded-db'", specifier = ">=0.11.0" },
+    { name = "pgvector", specifier = ">=0.4.1" },
+    { name = "pillow", specifier = ">=12.1.1" },
+    { name = "protobuf", specifier = ">=6.33.5" },
+    { name = "psycopg2-binary", specifier = ">=2.9.11" },
+    { name = "pyasn1", specifier = ">=0.6.3" },
+    { name = "pydantic", specifier = ">=2.0.0" },
+    { name = "pygments", specifier = ">=2.20.0" },
+    { name = "pyjwt", specifier = ">=2.12.0" },
+    { name = "pyjwt", extras = ["crypto"], specifier = ">=2.8.0" },
+    { name = "pytest", marker = "extra == 'test'", specifier = ">=7.0.0" },
+    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.21.0" },
+    { name = "pytest-timeout", marker = "extra == 'test'", specifier = ">=2.4.0" },
+    { name = "pytest-xdist", marker = "extra == 'test'", specifier = ">=3.0.0" },
+    { name = "python-dateutil", specifier = ">=2.8.0" },
+    { name = "python-dotenv", specifier = ">=1.0.0" },
+    { name = "python-multipart", specifier = ">=0.0.22" },
+    { name = "redis", marker = "extra == 'cache-redis'", specifier = ">=5.0.0" },
+    { name = "rich", specifier = ">=13.0.0" },
+    { name = "safetensors", marker = "extra == 'local-ml'", specifier = ">=0.6.2" },
+    { name = "sentence-transformers", marker = "extra == 'local-ml'", specifier = ">=3.3.0" },
+    { name = "sqlalchemy", specifier = ">=2.0.44" },
+    { name = "testcontainers", marker = "extra == 'test'", specifier = ">=4.0.0" },
+    { name = "tiktoken", specifier = ">=0.12.0" },
+    { name = "torch", marker = "extra == 'local-ml'", specifier = ">=2.6.0", index = "https://download.pytorch.org/whl/cpu" },
+    { name = "tornado", specifier = ">=6.5.5" },
+    { name = "transformers", marker = "extra == 'local-ml'", specifier = ">=4.53.0" },
+    { name = "typer", specifier = ">=0.9.0" },
+    { name = "urllib3", specifier = ">=2.6.3" },
+    { name = "uvicorn", specifier = ">=0.38.0" },
+    { name = "uvloop", marker = "sys_platform != 'win32'", specifier = ">=0.22.1" },
+    { name = "winloop", marker = "sys_platform == 'win32'", specifier = ">=0.1.0" },
+    { name = "wsproto", specifier = ">=1.0.0" },
+]
+provides-extras = ["local-ml", "local-llm", "embedded-db", "cache-redis", "all", "test"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "filelock", specifier = ">=3.20.1" },
+    { name = "pytest", specifier = ">=9.0.0" },
+    { name = "pytest-asyncio", specifier = ">=1.3.0" },
+    { name = "pytest-rerunfailures", specifier = ">=15.0" },
+    { name = "pytest-timeout", specifier = ">=2.4.0" },
+    { name = "pytest-xdist", specifier = ">=3.8.0" },
+    { name = "python-dotenv", specifier = ">=1.2.1" },
+    { name = "ruff", specifier = ">=0.8.0" },
+    { name = "testcontainers", specifier = ">=4.0.0" },
+    { name = "ty", specifier = ">=0.0.1" },
+]
+
+[[package]]
+name = "memsense-client"
+version = "0.5.4"
+source = { editable = "hindsight-clients/python" }
+dependencies = [
+    { name = "aiohttp" },
+    { name = "aiohttp-retry" },
+    { name = "pydantic" },
+    { name = "python-dateutil" },
+    { name = "typing-extensions" },
+    { name = "urllib3" },
+]
+
+[package.optional-dependencies]
+test = [
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "requests" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aiohttp", specifier = ">=3.8.4" },
+    { name = "aiohttp-retry", specifier = ">=2.8.3" },
+    { name = "pydantic", specifier = ">=2" },
+    { name = "pytest", marker = "extra == 'test'", specifier = ">=7.0.0" },
+    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.21.0" },
+    { name = "python-dateutil", specifier = ">=2.8.2" },
+    { name = "requests", marker = "extra == 'test'", specifier = ">=2.33.0" },
+    { name = "typing-extensions", specifier = ">=4.7.1" },
+    { name = "urllib3", specifier = ">=2.1.0,<3.0.0" },
+]
+provides-extras = ["test"]
+
+[[package]]
+name = "memsense-embed"
+version = "0.5.4"
+source = { editable = "hindsight-embed" }
+dependencies = [
+    { name = "httpx" },
+    { name = "rich" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "ruff" },
+    { name = "ty" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "httpx", specifier = ">=0.27.0" },
+    { name = "rich", specifier = ">=13.0.0" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = ">=8.0.0" },
+    { name = "ruff", specifier = ">=0.8.0" },
+    { name = "ty", specifier = ">=0.0.1" },
 ]
 
 [[package]]

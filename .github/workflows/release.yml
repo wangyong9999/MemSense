@@ -8,8 +8,9 @@ on:
 jobs:
   release-python-packages:
     runs-on: ubuntu-latest
-    # MemSense: publish only from the upstream repo; forks skip.
-    if: github.repository == 'vectorize-io/hindsight'
+    # MemSense: upstream publishes all 6 packages; our fork publishes a
+    # subset gated per-step (only names with a PyPI Pending Publisher run).
+    if: github.repository == 'vectorize-io/hindsight' || github.repository == 'wangyong9999/MemSense'
     environment: pypi
     permissions:
       id-token: write
@@ -52,13 +53,19 @@ jobs:
       working-directory: ./hindsight-embed
       run: uv build --out-dir dist
 
-    # Publish in order (client and api-slim first, then api/all wrappers which depend on them)
-    - name: Publish hindsight-client to PyPI
-      uses: pypa/gh-action-pypi-publish@release/v1
-      with:
-        packages-dir: ./hindsight-clients/python/dist
-        skip-existing: true
-
+    # Publish in order (client and api-slim first, then api/all wrappers which depend on them).
+    # MemSense: all 6 packages publish on both upstream and our fork — every
+    # package has a PyPI Pending Publisher registered. From the fork the
+    # wheels carry memsense-* names (see pyproject.toml); upstream still
+    # ships hindsight-*.
+    #
+    # MemSense v0.5.5 transitional: our fork only has Pending Publishers for
+    # memsense-api-slim and memsense-api so far (the rest hit PyPI's 24h
+    # rate limit). For THIS release only, the other 4 steps use
+    # continue-on-error on the fork so a missing publisher doesn't abort
+    # the job — upstream stays strict. Revert to `continue-on-error: false`
+    # (or remove entirely) once the remaining memsense-client / -all /
+    # -all-slim / -embed Pending Publishers are registered.
     - name: Publish hindsight-api-slim to PyPI
       uses: pypa/gh-action-pypi-publish@release/v1
       with:
@@ -71,19 +78,29 @@ jobs:
         packages-dir: ./hindsight-api/dist
         skip-existing: true
 
+    - name: Publish hindsight-client to PyPI
+      continue-on-error: ${{ github.repository == 'wangyong9999/MemSense' }}
+      uses: pypa/gh-action-pypi-publish@release/v1
+      with:
+        packages-dir: ./hindsight-clients/python/dist
+        skip-existing: true
+
     - name: Publish hindsight-all to PyPI
+      continue-on-error: ${{ github.repository == 'wangyong9999/MemSense' }}
       uses: pypa/gh-action-pypi-publish@release/v1
       with:
         packages-dir: ./hindsight-all/dist
         skip-existing: true
 
     - name: Publish hindsight-all-slim to PyPI
+      continue-on-error: ${{ github.repository == 'wangyong9999/MemSense' }}
       uses: pypa/gh-action-pypi-publish@release/v1
       with:
         packages-dir: ./hindsight-all-slim/dist
         skip-existing: true
 
     - name: Publish hindsight-embed to PyPI
+      continue-on-error: ${{ github.repository == 'wangyong9999/MemSense' }}
       uses: pypa/gh-action-pypi-publish@release/v1
       with:
         packages-dir: ./hindsight-embed/dist
@@ -105,8 +122,10 @@ jobs:
 
   release-typescript-client:
     runs-on: ubuntu-latest
-    # MemSense: publish only from the upstream repo; forks skip.
-    if: github.repository == 'vectorize-io/hindsight'
+    # MemSense: upstream publishes @vectorize-io/*, our fork publishes
+    # @memsense/* — NPM_TOKEN in the 'npm' environment scopes which registry
+    # each side targets.
+    if: github.repository == 'vectorize-io/hindsight' || github.repository == 'wangyong9999/MemSense'
     environment: npm
 
     steps:
@@ -156,8 +175,10 @@ jobs:
 
   release-hindsight-all-npm:
     runs-on: ubuntu-latest
-    # MemSense: publish only from the upstream repo; forks skip.
-    if: github.repository == 'vectorize-io/hindsight'
+    # MemSense: upstream publishes @vectorize-io/*, our fork publishes
+    # @memsense/* — NPM_TOKEN in the 'npm' environment scopes which registry
+    # each side targets.
+    if: github.repository == 'vectorize-io/hindsight' || github.repository == 'wangyong9999/MemSense'
     environment: npm
 
     steps:
@@ -207,8 +228,10 @@ jobs:
 
   release-control-plane:
     runs-on: ubuntu-latest
-    # MemSense: publish only from the upstream repo; forks skip.
-    if: github.repository == 'vectorize-io/hindsight'
+    # MemSense: upstream publishes @vectorize-io/*, our fork publishes
+    # @memsense/* — NPM_TOKEN in the 'npm' environment scopes which registry
+    # each side targets.
+    if: github.repository == 'vectorize-io/hindsight' || github.repository == 'wangyong9999/MemSense'
     environment: npm
 
     steps:

@@ -3,21 +3,21 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "hindsight-all-slim"
+name = "memsense-all-slim"
 version = "0.5.4"
 description = "Hindsight: Agent Memory That Works Like Human Memory - Slim All-in-One Bundle"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "hindsight-api-slim>=0.4.17",
-    "hindsight-client>=0.0.7",
-    "hindsight-embed>=0.1.0",
+    "memsense-api-slim>=0.4.17",
+    "memsense-client>=0.0.7",
+    "memsense-embed>=0.1.0",
 ]
 
 [tool.uv.sources]
-hindsight-api-slim = { workspace = true }
-hindsight-client = { workspace = true }
-hindsight-embed = { workspace = true }
+memsense-api-slim = { workspace = true }
+memsense-client = { workspace = true }
+memsense-embed = { workspace = true }
 
 [project.optional-dependencies]
 test = [

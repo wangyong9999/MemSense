@@ -3,25 +3,25 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "hindsight-all"
+name = "memsense-all"
 version = "0.5.4"
 description = "Hindsight: Agent Memory That Works Like Human Memory - All-in-One Bundle"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "hindsight-api-slim[all]>=0.4.17",
-    "hindsight-client>=0.0.7",
-    "hindsight-embed>=0.1.0",
+    "memsense-api-slim[all]>=0.4.17",
+    "memsense-client>=0.0.7",
+    "memsense-embed>=0.1.0",
 ]
 
 [tool.uv.sources]
-hindsight-api-slim = { workspace = true }
-hindsight-client = { workspace = true }
-hindsight-embed = { workspace = true }
+memsense-api-slim = { workspace = true }
+memsense-client = { workspace = true }
+memsense-embed = { workspace = true }
 
 [project.optional-dependencies]
 local-llm = [
-    "hindsight-api-slim[local-llm]>=0.4.17",
+    "memsense-api-slim[local-llm]>=0.4.17",
 ]
 test = [
     "pytest>=7.0.0",

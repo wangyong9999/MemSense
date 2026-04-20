@@ -1,5 +1,5 @@
 [project]
-name = "hindsight-client"
+name = "memsense-client"
 version = "0.5.4"
 description = "Python client for Hindsight - Semantic memory system with personality-driven thinking"
 authors = [
