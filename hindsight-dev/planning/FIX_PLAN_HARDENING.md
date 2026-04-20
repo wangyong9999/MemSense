@@ -202,11 +202,70 @@ never persisted as an entity row.
 
 ---
 
+## §9 — Usage endpoint SQL is schema-unqualified (P1, won't fix this pass)
+
+**What** — `SELECT ... FROM token_usage` is unqualified. In a multi-tenant
+deployment that uses Postgres schemas for isolation (as upstream's
+alembic migrations already support via `target_schema`), the query will
+hit whichever schema is on `search_path` and silently mix tenants.
+Upstream's `/v1/default/banks/{bank_id}/token-usage` has the same
+limitation — this is a broader tenancy story, not a MemSense-only gap.
+
+**Evidence** — code inspection of `usage.py` + `http.py::api_token_usage`.
+
+**Fix shape** — when §2 lands, resolve the schema from the authenticated
+tenant (same mechanism `delete_bank` uses) and qualify the table name.
+Needs a helper `fq_token_usage_table(tenant)` so the pattern is shared
+between the two endpoints.
+
+**Effort** — ~30 lines, but entangled with upstream multi-tenancy work.
+Defer to v0.7; track separately.
+
+---
+
+## §10 — Redis signing-key hard-fail policy (subissue of §4)
+
+When §4 lands with HMAC envelopes, the policy around missing keys matters:
+
+- Signing key missing AND Redis URL set → **hard fail at startup**, not
+  a silent downgrade to "no secondary". Silent downgrade is a footgun —
+  operators think they have cross-replica sharing while they silently
+  don't.
+- Signing key set but the stored payload lacks a signature → treat as
+  untrusted miss, log `redis_errors++` but do not raise. (Legacy
+  payloads from a pre-§4 deployment.)
+- Signing key rotated (old signatures invalid) → same path as above —
+  payloads treated as miss, regenerated on next compute.
+
+Document in the CLAUDE.md envar section when fix ships.
+
+---
+
+## Not in scope for this hardening pass
+
+- **Non-ASCII PII (Chinese 身份证, German tax ID, IPv6, etc.)** — regex
+  scope is ASCII. Tracked but not in v0.6 plan; add locale-specific
+  redactors as separate modules when a customer needs them.
+- **Rate limiting on erase endpoint** — should exist but lives in the
+  operation_validator layer (upstream territory), not here.
+- **Redis gen-counter TTL** — `recall_cache_gen:<bank_id>` keys have no
+  TTL, so a long-dead bank's counter lingers forever. Minor keyspace
+  leak; mitigate with Redis `maxmemory-policy allkeys-lru` if it ever
+  matters.
+- **Usage endpoint pagination / row caps** — a tenant with 10M
+  token_usage rows over a wide window returns the full list. Deferred
+  to when a real customer hits the cliff.
+
+---
+
 ## Sequencing
 
-1. `§2` + `§3` together (same PR, touches fork-only files only).
-2. `§1` + `§8` together (one PR, same module, related semantics).
-3. `§4` next (bigger code delta, shifts the Redis payload format).
+1. `§7` first (logging helper used by §2 and §3, small).
+2. `§1` + `§8` together (pii_redact extension + entity regression test).
+3. `§3` (erase audit on failure).
+4. `§2` (usage tenant auth).
+5. `§4` + `§10` (pickle hardening with signing-key policy).
+6. `§5` (cross-replica generation).
 4. `§5` after `§4` lands (re-use the signed envelope to carry gen safely).
 5. `§7` as cleanup once §2/§3 patterns are in place.
 6. `§6` folded into whichever PR touches `RecallCache.stats()`.
