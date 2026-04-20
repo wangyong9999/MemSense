@@ -32,11 +32,15 @@ def _make_pool(rows: list[dict]):
     return pool, conn
 
 
-def _build_app(rows: list[dict] | None = None) -> tuple[FastAPI, MagicMock]:
+def _build_app(rows: list[dict] | None = None, auth_raises: Exception | None = None) -> tuple[FastAPI, MagicMock]:
     app = FastAPI()
     memory = MagicMock()
     pool, conn = _make_pool(rows or [])
     memory._get_pool = AsyncMock(return_value=pool)
+    if auth_raises is None:
+        memory._authenticate_tenant = AsyncMock(return_value=None)
+    else:
+        memory._authenticate_tenant = AsyncMock(side_effect=auth_raises)
     app.state.memory = memory
     return app, conn
 
@@ -179,22 +183,42 @@ def test_usage_uses_explicit_start_end_when_provided():
 # ===========================================================================
 
 
-@pytest.mark.xfail(
-    reason="Usage endpoint does not call memory._authenticate_tenant — any caller "
-    "with or without a valid API key receives aggregated data across all banks. "
-    "See FIX_PLAN_HARDENING.md §2.",
-    strict=True,
-)
-def test_usage_endpoint_requires_authenticated_tenant():
-    """Documents the missing auth gate. When fixed, the endpoint should return 401
-    for unauthenticated requests and scope results to the caller's tenant.
+def test_usage_endpoint_rejects_unauthenticated_caller():
+    """Endpoint must call memory._authenticate_tenant first; an AuthenticationError
+    surfaces as 401 (via the app-level exception handler in production).
     """
-    app, _ = _build_app([])
-    register_usage_route(app)
-    client = TestClient(app)
+    from hindsight_api.extensions import AuthenticationError
 
-    resp = client.get("/v1/default/usage?group_by=operation")  # no Authorization header
-    assert resp.status_code == 401, f"expected 401 without auth, got {resp.status_code}"
+    app, _ = _build_app([], auth_raises=AuthenticationError("missing api key"))
+    register_usage_route(app)
+
+    from starlette.responses import JSONResponse
+
+    @app.exception_handler(AuthenticationError)
+    async def _h(request, exc):
+        return JSONResponse(status_code=401, content={"detail": str(exc)})
+
+    client = TestClient(app)
+    resp = client.get("/v1/default/usage?group_by=operation")
+    assert resp.status_code == 401
+
+
+def test_usage_endpoint_authenticates_before_querying_db():
+    """Auth happens BEFORE the DB fetch — no pool leak or partial data on auth failure."""
+    from hindsight_api.extensions import AuthenticationError
+
+    app, conn = _build_app([], auth_raises=AuthenticationError("bad"))
+    register_usage_route(app)
+
+    from starlette.responses import JSONResponse
+
+    @app.exception_handler(AuthenticationError)
+    async def _h(request, exc):
+        return JSONResponse(status_code=401, content={"detail": str(exc)})
+
+    client = TestClient(app)
+    client.get("/v1/default/usage?group_by=operation")
+    conn.fetch.assert_not_called()
 
 
 def test_usage_empty_window_returns_zero_totals():

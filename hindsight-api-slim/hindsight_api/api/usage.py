@@ -92,6 +92,15 @@ def register_usage_route(app: FastAPI) -> None:
         group_by: GroupBy = Query(default="operation"),
         request_context: RequestContext = Depends(_request_context),
     ) -> UsageResponse:
+        # Tenant authentication — must be first, before any DB work.
+        # Rejects unauthenticated callers (prevents cross-tenant data leaks
+        # in multi-tenant deployments). In single-tenant mode with auth
+        # disabled this is a no-op.
+        try:
+            await app.state.memory._authenticate_tenant(request_context)
+        except AuthenticationError:
+            raise
+
         if start is None or end is None:
             default_start, default_end = _default_window()
             start = start or default_start
