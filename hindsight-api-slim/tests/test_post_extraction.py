@@ -1261,17 +1261,58 @@ class TestPIIRedactInteractions:
         assert "Reach Bob at" in out
         assert "urgently" in out
 
-    @pytest.mark.xfail(
-        reason="ExtractedFact.entities list is not scanned for PII — LLM-extracted entities like "
-        "'bob@example.com' slip past the redactor. See planning/FIX_PLAN_HARDENING.md §1.",
-        strict=True,
-    )
-    def test_pii_in_entities_list_is_redacted(self):
-        """Documents the gap: entities field currently bypasses redaction."""
+    def test_pii_in_entities_list_is_dropped(self):
+        """Tainted entities (email/phone/SSN/CC/IP) are removed rather than replaced
+        with a [REDACTED:…] token — a redacted entity would be resolved as a new
+        phantom entity and pollute the graph. §1 in FIX_PLAN_HARDENING.md.
+        """
         from hindsight_api.engine.retain.post_extraction.pii_redact import redact_pii_in_facts
 
-        fact = FakeFact(fact_text="Contact was made.", entities=["Alice", "bob@example.com"])
+        fact = FakeFact(
+            fact_text="Contact was made.",
+            entities=["Alice", "bob@example.com", "415-555-1212", "Charlie"],
+        )
         redact_pii_in_facts([fact])
-        joined = ",".join(fact.entities)
-        assert "[REDACTED:email]" in joined
-        assert "bob@example.com" not in joined
+        assert fact.entities == ["Alice", "Charlie"]
+
+    def test_entity_objects_with_name_attribute_are_also_scanned(self):
+        """Redactor works on plain str entities AND on objects that expose .name
+        (pydantic Entity from fact_extraction.py).
+        """
+
+        class _Entity:
+            def __init__(self, name: str):
+                self.name = name
+
+            def __eq__(self, other):
+                return isinstance(other, _Entity) and other.name == self.name
+
+        from hindsight_api.engine.retain.post_extraction.pii_redact import redact_pii_in_facts
+
+        fact = FakeFact(
+            fact_text="Contact was made.",
+            entities=[_Entity("Alice"), _Entity("bob@example.com"), _Entity("Carol")],
+        )
+        redact_pii_in_facts([fact])
+        names = [getattr(e, "name", e) for e in fact.entities]
+        assert names == ["Alice", "Carol"]
+
+    def test_redact_tokens_never_become_entities(self):
+        """§8 regression — after redaction, no fact or entity carries a literal
+        [REDACTED:…] token that downstream entity resolution could pick up as
+        a new phantom entity.
+        """
+        from hindsight_api.engine.retain.post_extraction.pii_redact import redact_pii_in_facts
+
+        fact = FakeFact(
+            fact_text="Met alice@example.com on 2024-03-15",
+            entities=["Alice", "alice@example.com"],
+        )
+        redact_pii_in_facts([fact])
+
+        # fact_text contains the token (expected — proves the text was redacted)
+        assert "[REDACTED:email]" in fact.fact_text
+        # but the entities list never contains a REDACTED marker
+        for ent in fact.entities:
+            name = ent if isinstance(ent, str) else getattr(ent, "name", "")
+            assert "[REDACTED" not in name, f"redaction marker leaked into entities: {ent!r}"
